@@ -820,7 +820,7 @@ const PopupReview = ({
               <p className="text-blue-600 mb-4">
                 As a guide, you can only approve/disapprove the PPT for this panel review.
               </p>
-              {showPPTSection ? (
+              
                 <div className="mb-6 p-4 bg-white border border-blue-200 rounded-xl">
                   <div className="flex items-center justify-center space-x-3 mb-3">
                     <span className="text-2xl">PPT</span>
@@ -837,14 +837,7 @@ const PopupReview = ({
                     <span className="font-semibold text-blue-800 text-lg">Approve Team PPT</span>
                   </label>
                 </div>
-              ) : (
-                <div className="text-gray-500 italic p-4 bg-gray-50 rounded-xl">
-                  <span className="text-4xl mb-2 block">Info</span>
-                  This panel review does not require PPT approval.
-                  <br />
-                  <span className="text-sm mt-2 block">No action needed from guide side.</span>
-                </div>
-              )}
+              
             </div>
           )}
 
