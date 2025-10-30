@@ -23,10 +23,6 @@ const reviewSchema = new mongoose.Schema(
     facultyType: { type: String, enum: ["guide", "panel"], required: true },
     components: [componentSchema],
     deadline: { type: deadlineSchema, required: true },
-    pptApproved: {
-      approved: { type: Boolean, default: false },
-      locked: { type: Boolean, default: false },
-    },
   },
   { _id: false }
 );

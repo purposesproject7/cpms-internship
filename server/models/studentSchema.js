@@ -18,10 +18,6 @@ const studentSchema = new mongoose.Schema({
     type: Map, 
     of: Object 
   },
-  pptApproved: {
-    approved: { type: Boolean, default: false },
-    locked: { type: Boolean, default: false },
-  },
   deadline: { 
     type: Map, 
     of: Object 
@@ -47,14 +43,12 @@ const studentSchema = new mongoose.Schema({
     enum: ["none", "Patent Filed", "Journal Publication", "Book Chapter Contribution"], 
     default: "none" 
   },
-  // ✅ NEW: Added internshipType field
   internshipType: { 
     type: String, 
     enum: ["none", "Cdc approved", "Technology learnt", "SRIP", "Centre"], 
     default: "none",
     validate: {
       validator: function(value) {
-        // ✅ Only allow non-"none" values when department is "Internship"
         if (this.department !== "Internship" && value !== "none") {
           return false;
         }
