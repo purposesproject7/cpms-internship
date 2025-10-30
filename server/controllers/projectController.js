@@ -1533,7 +1533,7 @@ export const updateProjectDetails = async (req, res) => {
         }
 
         // Validate based on department
-        if (student.department !== 'internship' && internshipType !== 'none') {
+        if (student.department !== 'Internship' && internshipType !== 'none') {
           throw new Error(
             `internshipType can only have values other than "none" when department is "internship". Student ${student.regNo} has department "${student.department}"`
           );

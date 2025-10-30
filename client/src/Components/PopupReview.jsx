@@ -218,60 +218,67 @@ const PopupReview = ({
   ]);
 
   // Initialize form data from existing reviews
-  useEffect(() => {
-    if (!isOpen || loading) return;
+useEffect(() => {
+  if (!isOpen || loading) return;
 
-    console.log("Initializing form data...");
-    console.log("Team members:", teamMembers.length);
+  console.log("Initializing form data...");
+  console.log("Team members:", teamMembers.length);
 
-    const initialMarks = {};
-    const initialComments = {};
-    const initialAttendance = {};
-    const initialPatStates = {};
-    const initialContributions = {};
-    const initialInternshipTypes = {};
+  const initialMarks = {};
+  const initialComments = {};
+  const initialAttendance = {};
+  const initialPatStates = {};
+  const initialContributions = {};
+  const initialInternshipTypes = {};
 
-    teamMembers.forEach((member) => {
-      console.log(`Processing member: ${member.name}`);
-      let reviewData = null;
-      if (member.reviews?.get) {
-        reviewData = member.reviews.get(reviewType);
-      } else if (member.reviews?.[reviewType]) {
-        reviewData = member.reviews[reviewType];
-      }
-      console.log(`Review data for ${member.name}:`, reviewData);
+  teamMembers.forEach((member) => {
+    console.log(`Processing member: ${member.name}`);
+    let reviewData = null;
+    if (member.reviews?.get) {
+      reviewData = member.reviews.get(reviewType);
+    } else if (member.reviews?.[reviewType]) {
+      reviewData = member.reviews[reviewType];
+    }
+    console.log(`Review data for ${member.name}:`, reviewData);
 
-      if (!showOnlyPPTApproval) {
-        const componentMarks = {};
-        componentLabels.forEach((comp) => {
-          let markValue = "";
-          if (reviewData?.marks) {
-            markValue = reviewData.marks[comp.name] || "";
-          }
-          componentMarks[comp.key] = markValue || "";
-        });
-        initialMarks[member._id] = componentMarks;
-        initialComments[member._id] = reviewData?.comments || "";
-        if (hasAttendance) {
-          initialAttendance[member._id] = reviewData?.attendance?.value ?? false;
+    if (!showOnlyPPTApproval) {
+      const componentMarks = {};
+      componentLabels.forEach((comp) => {
+        let markValue = "";
+        if (reviewData?.marks) {
+          markValue = reviewData.marks[comp.name] || "";
         }
-
-        initialContributions[member._id] = reviewData?.contribution || "0";
-        const existingInternship = reviewData?.internshipType ?? "none";
-        initialInternshipTypes[member._id] = existingInternship;
+        componentMarks[comp.key] = markValue || "";
+      });
+      initialMarks[member._id] = componentMarks;
+      initialComments[member._id] = reviewData?.comments || "";
+      if (hasAttendance) {
+        initialAttendance[member._id] = reviewData?.attendance?.value ?? false;
       }
 
-      const patStatus = member.PAT === true || member.PAT === "true" || member.PAT === 1;
-      initialPatStates[member._id] = patStatus;
-    });
+      initialContributions[member._id] = reviewData?.contribution || "0";
+      
+      // ✅ CRITICAL FIX: Get from member (student level), NOT from reviewData
+      const existingInternship = member.internshipType || "none";
+      initialInternshipTypes[member._id] = existingInternship;
+      console.log(`🏢 [PopupReview] Loaded internshipType for ${member.name} (ID: ${member._id}): "${existingInternship}"`);
+    }
 
-    setMarks(initialMarks);
-    setComments(initialComments);
-    if (hasAttendance) setAttendance(initialAttendance);
-    setPatStates(initialPatStates);
-    setContributions(initialContributions);
-    setInternshipTypes(initialInternshipTypes);
-    setBestProject(currentBestProject || false);
+    const patStatus = member.PAT === true || member.PAT === "true" || member.PAT === 1;
+    initialPatStates[member._id] = patStatus;
+  });
+
+  console.log('📊 [PopupReview] All initial data loaded:');
+  console.log('  - Internship Types:', initialInternshipTypes);
+
+  setMarks(initialMarks);
+  setComments(initialComments);
+  if (hasAttendance) setAttendance(initialAttendance);
+  setPatStates(initialPatStates);
+  setContributions(initialContributions);
+  setInternshipTypes(initialInternshipTypes);  // ✅ Make sure this is called
+  setBestProject(currentBestProject || false);
+
 
     if (showOnlyPPTApproval) {
       setSub("Unlocked");

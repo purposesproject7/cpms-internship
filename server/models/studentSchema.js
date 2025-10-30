@@ -42,11 +42,26 @@ const studentSchema = new mongoose.Schema({
     type: Boolean, 
     default: false 
   },
-  // ✅ NEW: Added contributionType field
   contributionType: { 
     type: String, 
     enum: ["none", "Patent Filed", "Journal Publication", "Book Chapter Contribution"], 
     default: "none" 
+  },
+  // ✅ NEW: Added internshipType field
+  internshipType: { 
+    type: String, 
+    enum: ["none", "Cdc approved", "Technology learnt", "SRIP", "Centre"], 
+    default: "none",
+    validate: {
+      validator: function(value) {
+        // ✅ Only allow non-"none" values when department is "Internship"
+        if (this.department !== "Internship" && value !== "none") {
+          return false;
+        }
+        return true;
+      },
+      message: 'internshipType can only have values other than "none" when department is "Internship"'
+    }
   },
 }, {
   timestamps: true // Optional: adds createdAt and updatedAt

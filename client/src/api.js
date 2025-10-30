@@ -6,12 +6,10 @@ const API = axios.create({
   baseURL: `${API_BASE_URL}`,
 });
 
-
 // Add these to your existing api.js file
 
 // Update student (keep existing but ensure it only sends basic fields)
-// ✅ FIXED: Update student with contributionType support
-// Update student (FIXED to include contributionType)
+// ✅ FIXED: Update student with contributionType and internshipType support
 export const updateStudent = async (regNo, studentData) => {
   try {
     // Filter to only send editable fields that match your schema
@@ -23,7 +21,8 @@ export const updateStudent = async (regNo, studentData) => {
     if (studentData.school !== undefined) allowedData.school = studentData.school;
     if (studentData.department !== undefined) allowedData.department = studentData.department;
     if (studentData.requiresContribution !== undefined) allowedData.requiresContribution = studentData.requiresContribution;
-    if (studentData.contributionType !== undefined) allowedData.contributionType = studentData.contributionType; // ✅ NEW
+    if (studentData.contributionType !== undefined) allowedData.contributionType = studentData.contributionType;
+    if (studentData.internshipType !== undefined) allowedData.internshipType = studentData.internshipType; // ✅ NEW
     if (studentData.PAT !== undefined) allowedData.PAT = studentData.PAT;
 
     console.log('📤 [API] Sending update request for student:', regNo);
@@ -40,8 +39,6 @@ export const updateStudent = async (regNo, studentData) => {
     throw error;
   }
 };
-
-
 
 // Add this to your existing api.js file
 export const getMarkingSchema = async (school, department) => {
@@ -66,7 +63,6 @@ export const getMarkingSchema = async (school, department) => {
   }
 };
 
-
 // Delete student (using axios like other endpoints)
 export const deleteStudent = async (regNo) => {
   return API.delete(`/student/${regNo}`);
@@ -77,7 +73,6 @@ export const getFilteredStudents = (params = new URLSearchParams()) => {
   const queryString = params.toString();
   return API.get(`student/students${queryString ? `?${queryString}` : ''}`);
 };
-
 
 // Helper function to build query parameters for school/department filtering
 const buildAdminContextParams = (school = null, department = null) => {
@@ -168,7 +163,6 @@ export const getAllPanelsWithProjects = async (school = null, department = null)
     throw error;
   }
 };
-
 
 export const getAllPanels = (school = null, department = null) => {
   const queryString = buildAdminContextParams(school, department);
@@ -319,7 +313,7 @@ export const getAllProjects = (params = new URLSearchParams()) => {
   return API.get(`/project/all${queryString ? `?${queryString}` : ''}`);
 };
 
-// Update project (using existing project/update endpoint)
+// ✅ UPDATED: Update project with internshipType support
 export const updateProject = async (projectIdOrData, projectData = null) => {
   try {
     let payload;
@@ -362,15 +356,24 @@ export const updateProject = async (projectIdOrData, projectData = null) => {
   }
 };
 
-// Add this function to your api.js file
-// ✅ FIXED: Use axios instead of fetch to get automatic token injection
+// ✅ UPDATED: Use axios instead of fetch to get automatic token injection
+// Also supports internshipType in studentUpdates
 export const updateProjectDetails = async (updatePayload) => {
   try {
-    console.log('📤 [API] Sending project update request:', updatePayload);
+    console.log('📤 [API] Sending project update request:', JSON.stringify(updatePayload, null, 2));
     
     // Validate required fields
     if (!updatePayload.projectId) {
       throw new Error('Project ID is required');
+    }
+    
+    // Log if internshipType updates are included
+    if (updatePayload.studentUpdates) {
+      updatePayload.studentUpdates.forEach((update, index) => {
+        if (update.internshipType !== undefined) {
+          console.log(`📝 [API] Student update ${index + 1} includes internshipType: ${update.internshipType}`);
+        }
+      });
     }
     
     // Use axios API instance (which has the interceptor for auth token)
@@ -380,10 +383,10 @@ export const updateProjectDetails = async (updatePayload) => {
     return response.data;
   } catch (error) {
     console.error('❌ [API] Error updating project details:', error);
+    console.error('❌ [API] Error details:', error.response?.data);
     throw error;
   }
 };
-
 
 // Delete project (using existing project/:projectId endpoint)
 export const deleteProject = async (projectId) => {
@@ -406,6 +409,7 @@ export const getAllPanelProjectsAdmin = (params = new URLSearchParams()) => {
   const queryString = params.toString();
   return API.get(`/project/panel/all${queryString ? `?${queryString}` : ''}`);
 };
+
 export const createProjectsBulk = (payload) => {
   return API.post("/project/createProjectsBulk", payload);
 };

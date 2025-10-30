@@ -675,81 +675,114 @@ const handleProjectNameUpdate = useCallback(async (projectId, newName) => {
     setEditRequestModal(prev => ({ ...prev, isOpen: false }));
   }, []);
 
-  const handleReviewSubmit = useCallback(async (teamId, reviewType, reviewData, pptObj, patUpdates) => {
-    try {
-      const team = teams.find(t => t.id === teamId);
-      if (!team) {
-        showNotification('error', 'Team Not Found', 'Team not found! Please refresh and try again.');
-        return;
-      }
+const handleReviewSubmit = useCallback(async (teamId, reviewType, reviewData, pptObj, patUpdates) => {
+  try {
+    const team = teams.find(t => t.id === teamId);
+    if (!team) {
+      showNotification('error', 'Team Not Found', 'Team not found! Please refresh and try again.');
+      return;
+    }
 
-      const reviewTypes = getReviewTypesForTeam(team.markingSchema);
-      const reviewConfig = reviewTypes.find(r => r.key === reviewType);
+    const reviewTypes = getReviewTypesForTeam(team.markingSchema);
+    const reviewConfig = reviewTypes.find(r => r.key === reviewType);
+    
+    if (!reviewConfig) {
+      showNotification('error', 'Configuration Error', 'Review configuration not found! Please refresh and try again.');
+      return;
+    }
+
+    console.log('📤 [Panel] Submitting review data:', reviewData);
+
+    // ✅ FIXED: Extract student-level data and review-level data separately
+    const studentUpdates = team.students.map(student => {
+      const studentReviewData = reviewData[student.regNo] || {};
       
-      if (!reviewConfig) {
-        showNotification('error', 'Configuration Error', 'Review configuration not found! Please refresh and try again.');
-        return;
+      console.log(`👤 [Panel] Processing student ${student.name} (${student.regNo}):`, studentReviewData);
+
+      // Build marks object based on components
+      const marks = {};
+      if (reviewConfig.components && reviewConfig.components.length > 0) {
+        reviewConfig.components.forEach(comp => {
+          const markValue = Number(studentReviewData[comp.name]) || 0;
+          marks[comp.name] = markValue;
+        });
       }
 
-      const studentUpdates = team.students.map(student => {
-        const studentReviewData = reviewData[student.regNo] || {};
-        
-        const marks = {};
-        if (reviewConfig.components && reviewConfig.components.length > 0) {
-          reviewConfig.components.forEach(comp => {
-            const markValue = Number(studentReviewData[comp.name]) || 0;
-            marks[comp.name] = markValue;
-          });
-        }
-
-        const reviewObject = {
-          marks: marks,
-          attendance: studentReviewData.attendance || { value: false, locked: false },
-          locked: studentReviewData.locked || false,
-          comments: studentReviewData.comments || ''
-        };
-
-        if (reviewConfig.requiresPPT && pptObj?.pptApproved) {
-          reviewObject.pptApproved = {
-            approved: Boolean(pptObj.pptApproved.approved),
-            locked: Boolean(pptObj.pptApproved.locked || false)
-          };
-        }
-
-        return {
-          studentId: student._id,
-          reviews: {
-            [reviewType]: reviewObject
-          }
-        };
-      });
-
-      const updatePayload = {
-        projectId: teamId,
-        projectUpdates: patUpdates?.bestProject ? { bestProject: patUpdates.bestProject } : {},
-        studentUpdates
+      // Build review-level data
+      const reviewObject = {
+        marks: marks,
+        attendance: studentReviewData.attendance || { value: false, locked: false },
+        locked: studentReviewData.locked || false,
+        comments: studentReviewData.comments || ''
       };
 
-      const loadingId = showNotification('info', 'Submitting...', 'Please wait while we save your panel review...', 10000);
-      
-      const response = await updateProject(updatePayload);
-      hideNotification(loadingId);
-      
-      if (response.data?.success || response.data?.updates) {
-        setActivePopup(null);
-        
-        setTimeout(async () => {
-          await handleRefresh();
-          showNotification('success', 'Review Saved', 'Panel review submitted successfully!');
-        }, 300);
-      } else {
-        showNotification('error', 'Submission Failed', 'Panel review submission failed. Please try again.');
+      // ✅ Add PPT approval if required
+      if (reviewConfig.requiresPPT && pptObj?.pptApproved) {
+        reviewObject.pptApproved = {
+          approved: Boolean(pptObj.pptApproved.approved),
+          locked: Boolean(pptObj.pptApproved.locked || false)
+        };
       }
-    } catch (error) {
-      console.error('❌ Error submitting panel review:', error);
-      showNotification('error', 'Submission Error', `Error submitting panel review: ${error.message}`);
+
+      // ✅ NEW: Add contribution if provided (review-level)
+      if (studentReviewData.contribution !== undefined) {
+        reviewObject.contribution = String(studentReviewData.contribution);
+        console.log(`📝 [Panel] Added contribution for ${student.name}:`, reviewObject.contribution);
+      }
+
+      // ✅ Build student update object
+      const studentUpdate = {
+        studentId: student._id,
+        reviews: {
+          [reviewType]: reviewObject
+        }
+      };
+
+      // ✅ NEW: Add internshipType at student level (NOT in reviews)
+      if (studentReviewData.internshipType !== undefined) {
+        studentUpdate.internshipType = studentReviewData.internshipType;
+        console.log(`🏢 [Panel] Added internshipType for ${student.name}:`, studentUpdate.internshipType);
+      }
+
+      // ✅ Add PAT status if provided
+      if (patUpdates?.patStates && patUpdates.patStates[student.regNo] !== undefined) {
+        studentUpdate.PAT = Boolean(patUpdates.patStates[student.regNo]);
+        console.log(`🚫 [Panel] Added PAT status for ${student.name}:`, studentUpdate.PAT);
+      }
+
+      return studentUpdate;
+    });
+
+    // ✅ Build final payload
+    const updatePayload = {
+      projectId: teamId,
+      projectUpdates: patUpdates?.bestProject ? { bestProject: patUpdates.bestProject } : {},
+      studentUpdates
+    };
+
+    console.log('📤 [Panel] Final update payload:', JSON.stringify(updatePayload, null, 2));
+
+    const loadingId = showNotification('info', 'Submitting...', 'Please wait while we save your panel review...', 10000);
+    
+    const response = await updateProject(updatePayload);
+    hideNotification(loadingId);
+    
+    if (response.data?.success || response.data?.updates) {
+      setActivePopup(null);
+      
+      setTimeout(async () => {
+        await handleRefresh();
+        showNotification('success', 'Review Saved', 'Panel review submitted successfully!');
+      }, 300);
+    } else {
+      showNotification('error', 'Submission Failed', 'Panel review submission failed. Please try again.');
     }
-  }, [teams, getReviewTypesForTeam, handleRefresh, showNotification, hideNotification]);
+  } catch (error) {
+    console.error('❌ Error submitting panel review:', error);
+    showNotification('error', 'Submission Error', `Error submitting panel review: ${error.message}`);
+  }
+}, [teams, getReviewTypesForTeam, handleRefresh, showNotification, hideNotification]);
+
 
   if (loading) {
     return (
