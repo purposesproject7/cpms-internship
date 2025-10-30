@@ -326,7 +326,7 @@ export const updateStudentDetails = async (req, res) => {
     // ✅ NEW: Validate internshipType based on department
     const currentDepartment = updateFields.department || student.department;
     if (updateFields.internshipType !== undefined && 
-        currentDepartment !== 'internship' && 
+        currentDepartment !== 'Internship' && 
         updateFields.internshipType !== 'none') {
       return res.status(400).json({
         success: false,
@@ -341,7 +341,7 @@ export const updateStudentDetails = async (req, res) => {
     }
 
     // ✅ NEW: Logic validation - if department changes to non-internship, internshipType should be 'none'
-    if (updateFields.department && updateFields.department !== 'internship' && student.internshipType && student.internshipType !== 'none') {
+    if (updateFields.department && updateFields.department !== 'Internship' && student.internshipType && student.internshipType !== 'none') {
       console.warn(`⚠️  Warning: Changing department from 'internship' to '${updateFields.department}' but internshipType is not 'none'. Forcing internshipType to 'none'.`);
       updates.internshipType = 'none';
     }

@@ -710,7 +710,7 @@ export async function createProjectsBulk(req, res) {
             }
 
             // ✅ NEW: Validate internshipType based on department
-            if (department !== 'internship' && studentInternshipType !== 'none') {
+            if (department !== 'Internship' && studentInternshipType !== 'none') {
               throw new Error(
                 `internshipType can only have values other than "none" when department is "internship". Student ${regNo} has department "${department}" with internshipType "${studentInternshipType}"`
               );
@@ -1533,7 +1533,7 @@ export const updateProjectDetails = async (req, res) => {
         }
 
         // Validate based on department
-        if (student.department !== 'internship' && internshipType !== 'none') {
+        if (student.department !== 'Internship' && internshipType !== 'none') {
           throw new Error(
             `internshipType can only have values other than "none" when department is "internship". Student ${student.regNo} has department "${student.department}"`
           );
