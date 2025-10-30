@@ -59,9 +59,8 @@ const PopupReview = ({
     (deadlineInfo.isBeforeStart || deadlineInfo.isAfterEnd) && requestStatus !== "approved";
   const finalFormLocked = isFormLocked || isDeadlineLocked;
 
-  // Hide PPT for Internship department
-  const isInternshipDept = markingSchema?.department === "Internship";
-  const showPPTSection = !isInternshipDept && requiresPPT;
+  // PPT approval shown for ALL departments if requiresPPT is true
+  const showPPTSection = requiresPPT;
 
   const calculateDeadlineStatus = (reviewConfig) => {
     if (!reviewConfig?.deadline) {
@@ -172,8 +171,8 @@ const PopupReview = ({
         }
 
         setRequiresContribution(reviewConfig?.requiresContribution || false);
-        setShowInternshipSelect(isInternshipDept);
-        console.log(`Department: ${markingSchema?.department} → showInternshipSelect = ${isInternshipDept}`);
+        setShowInternshipSelect(markingSchema?.department === "Internship");
+        console.log(`Department: ${markingSchema?.department} → showInternshipSelect = ${markingSchema?.department === "Internship"}`);
       }
 
       const deadlineStatus = showOnlyPPTApproval
@@ -289,7 +288,7 @@ const PopupReview = ({
       setSub(isSubReady ? "Unlocked" : "Locked");
     }
 
-    // PPT approval init – only if NOT Internship
+    // PPT approval init – for ALL departments if requiresPPT
     if (showPPTSection) {
       let pptAlreadyApproved = false;
       if (teamMembers.length > 0) {
@@ -770,7 +769,7 @@ const PopupReview = ({
                 </div>
               )}
 
-              {/* {showInternshipSelect && !showOnlyPPTApproval && (
+              {showInternshipSelect && !showOnlyPPTApproval && (
                 <div className="mt-3">
                   <h4 className="font-semibold text-blue-800 mb-2">Internship Type</h4>
                   {teamMembers.map((member) => (
@@ -794,7 +793,7 @@ const PopupReview = ({
                     </div>
                   ))}
                 </div>
-              )} */}
+              )}
 
               <p className="text-sm text-blue-600 mt-2">
                 {showPPTSection && requiresContribution && showInternshipSelect
@@ -820,7 +819,7 @@ const PopupReview = ({
               <p className="text-blue-600 mb-4">
                 As a guide, you can only approve/disapprove the PPT for this panel review.
               </p>
-              
+              {showPPTSection ? (
                 <div className="mb-6 p-4 bg-white border border-blue-200 rounded-xl">
                   <div className="flex items-center justify-center space-x-3 mb-3">
                     <span className="text-2xl">PPT</span>
@@ -837,7 +836,14 @@ const PopupReview = ({
                     <span className="font-semibold text-blue-800 text-lg">Approve Team PPT</span>
                   </label>
                 </div>
-              
+              ) : (
+                <div className="text-gray-500 italic p-4 bg-gray-50 rounded-xl">
+                  <span className="text-4xl mb-2 block">Info</span>
+                  This panel review does not require PPT approval.
+                  <br />
+                  <span className="text-sm mt-2 block">No action needed from guide side.</span>
+                </div>
+              )}
             </div>
           )}
 
