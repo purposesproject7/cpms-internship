@@ -1,0 +1,441 @@
+#!/usr/bin/env node
+/**
+ * SINGLE STUDENT TEST - For student 25MCA1043 only
+ * Use this to test and debug before running on all students
+ */
+
+const XLSX = require('xlsx');
+const axios = require('axios');
+const fs = require('fs');
+const readline = require('readline');
+
+// ==================== CONFIGURATION ====================
+const CONFIG = {
+    EXCEL_FILE: './student_mark_assign.xlsx',
+    API_BASE_URL: 'http://localhost:5000/api/student',
+    AUTH_TOKEN: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY4Zjg5N2JlMjJiN2QwODQ3NDRmNjU0OCIsImVtYWlsSWQiOiJhZG1pbkB2aXQuYWMuaW4iLCJlbXBsb3llZUlkIjoiQURNSU4wMDEiLCJyb2xlIjoiYWRtaW4iLCJpYXQiOjE3NjE2NzcwOTMsImV4cCI6MTc2MTc2MzQ5M30.8gftdd6WoUdWw0l8Gho61KDzqlI7hQJQ4rOZ5o6mZGc',
+    REQUEST_DELAY: 100,
+    TIMEOUT: 30000,
+    DEBUG_MODE: true,
+    TARGET_STUDENT: '25MCA1043' // 🎯 ONLY THIS STUDENT WILL BE PROCESSED
+};
+
+// ==================== REVIEW MAPPINGS ====================
+const REVIEW_MAPPINGS = {
+    'MCA': {
+        'draftReview': {
+            prefix: 'Zero-th Review',
+            components: ['Problem Formulation']
+        },
+        'guideReview1': {
+            prefix: 'Review 1',
+            components: ['Literature Review & Design of Methodology']
+        },
+        'review0': {
+            prefix: 'Review 2',
+            components: [
+                'Proposed Model / Architecture / Framework Designed',
+                'Modules Description',
+                'Detailed design with Explanations (Algorithms)',
+                'Partial Implementation (60%)/Dataset description / Results Obtained',
+                'Presentation & Ability to Answer questions'
+            ]
+        }
+    },
+    'BTech': {
+        'draftReview': {
+            prefix: 'Zero-th Review',
+            components: ['Title & Problem Statement']
+        },
+        'panelReview1': {
+            prefix: 'Review 1',
+            components: [
+                'Problem Statement & Motivation',
+                'Literature Review & Gap Identification',
+                'Objective & Scope',
+                'Proposed methodology & Feasability',
+                'Presentation & Communication'
+            ]
+        }
+    },
+    'M.Tech 2yr (MCS,MCB,MAI)': {
+        'panelReview1': {
+            prefix: '2nd Review',
+            components: [
+                'Explanation of all the modules one by one which includes the algorithm(s)',
+                '70% implementation with results',
+                'Presentation skill and ability to answer questions'
+            ]
+        }
+    }
+};
+
+class StudentMarksUpdater {
+    constructor(config) {
+        this.config = config;
+        this.stats = {
+            total: 0,
+            success: 0,
+            failed: 0,
+            skipped: 0,
+            reviewsProcessed: 0,
+            componentsProcessed: 0
+        };
+        this.errors = [];
+        this.logFile = `marks_update_${CONFIG.TARGET_STUDENT}_${Date.now()}.log`;
+    }
+
+    log(message, level = 'INFO') {
+        const timestamp = new Date().toISOString();
+        const logMsg = `[${timestamp}] [${level}] ${message}`;
+        console.log(logMsg);
+        fs.appendFileSync(this.logFile, logMsg + '\n');
+    }
+
+    debug(message) {
+        if (this.config.DEBUG_MODE) {
+            this.log(message, 'DEBUG');
+        }
+    }
+
+    loadExcel() {
+        try {
+            this.log(`📂 Loading Excel file: ${this.config.EXCEL_FILE}`);
+            
+            if (!fs.existsSync(this.config.EXCEL_FILE)) {
+                throw new Error(`File not found: ${this.config.EXCEL_FILE}`);
+            }
+
+            const workbook = XLSX.readFile(this.config.EXCEL_FILE);
+            const sheets = {};
+
+            this.log(`📊 Found ${workbook.SheetNames.length} sheets`);
+            
+            workbook.SheetNames.forEach(sheetName => {
+                const worksheet = workbook.Sheets[sheetName];
+                const data = XLSX.utils.sheet_to_json(worksheet);
+                sheets[sheetName] = data;
+                
+                // Debug: Show first row columns
+                if (data.length > 0 && this.config.DEBUG_MODE) {
+                    this.debug(`Sheet "${sheetName}" columns: ${Object.keys(data[0]).join(', ')}`);
+                }
+                
+                this.log(`  ✓ ${sheetName}: ${data.length} rows`);
+            });
+
+            return sheets;
+        } catch (error) {
+            this.log(`❌ Failed to load Excel: ${error.message}`, 'ERROR');
+            throw error;
+        }
+    }
+
+    getDepartment(sheetName) {
+        const lower = sheetName.toLowerCase();
+        if (lower.includes('mca')) return 'MCA';
+        if (lower.includes('btech')) return 'BTech';
+        if (lower.includes('mtech') || lower.includes('m.tech')) return 'M.Tech 2yr (MCS,MCB,MAI)';
+        return null;
+    }
+
+    extractReviewMarks(row, reviewConfig) {
+        const marks = {};
+        const prefix = reviewConfig.prefix;
+        let componentsFound = 0;
+
+        reviewConfig.components.forEach(component => {
+            const columnName = `${prefix}_${component}`;
+            const value = row[columnName];
+
+            this.debug(`  Checking column: "${columnName}" = ${value}`);
+
+            if (value !== undefined && value !== null && value !== '') {
+                const mark = parseFloat(value);
+                if (!isNaN(mark)) {
+                    marks[component] = mark;
+                    componentsFound++;
+                    this.debug(`    ✓ Found mark: ${component} = ${mark}`);
+                }
+            }
+        });
+
+        this.debug(`  Total components found: ${componentsFound}/${reviewConfig.components.length}`);
+        return marks;
+    }
+
+    buildPayload(row, department) {
+        const regNo = String(row['Register No'] || '').trim();
+        const name = String(row['Name'] || '').trim();
+
+        if (!regNo || regNo === 'undefined') {
+            return null;
+        }
+
+        const reviewMapping = REVIEW_MAPPINGS[department];
+        if (!reviewMapping) {
+            this.log(`⚠️ No mapping for department: ${department}`, 'WARN');
+            return null;
+        }
+
+        this.debug(`\n📝 Building payload for: ${name} (${regNo})`);
+
+        const marksUpdate = [];
+        let totalReviews = 0;
+        let totalComponents = 0;
+
+        Object.entries(reviewMapping).forEach(([reviewName, reviewConfig]) => {
+            this.debug(`\n  Processing review: ${reviewName} (prefix: "${reviewConfig.prefix}")`);
+            
+            const marks = this.extractReviewMarks(row, reviewConfig);
+            const prefix = reviewConfig.prefix;
+
+            // Get attendance and comments
+            const attendanceCol = `${prefix}_Attendance`;
+            const commentsCol = `${prefix}_Comments`;
+
+            const isPresent = row[attendanceCol] && 
+                String(row[attendanceCol]).toLowerCase() === 'present';
+            const comments = row[commentsCol] ? String(row[commentsCol]).trim() : '';
+
+            this.debug(`  Attendance (${attendanceCol}): ${isPresent ? 'Present' : 'Absent'}`);
+            this.debug(`  Comments (${commentsCol}): ${comments || '(none)'}`);
+
+            const reviewData = {
+                reviewName,
+                marks,
+                comments,
+                attendance: {
+                    value: isPresent,
+                    locked: false
+                },
+                locked: false
+            };
+
+            marksUpdate.push(reviewData);
+            totalReviews++;
+            totalComponents += Object.keys(marks).length;
+
+            this.debug(`  ✓ Review "${reviewName}" added with ${Object.keys(marks).length} components`);
+        });
+
+        // Get PAT detection
+        const patDetected = row['PAT_Detected'] && 
+            String(row['PAT_Detected']).toLowerCase() === 'yes';
+
+        this.debug(`\n📊 Summary: ${totalReviews} reviews, ${totalComponents} total components`);
+        this.debug(`PAT Detected: ${patDetected}`);
+
+        this.stats.reviewsProcessed += totalReviews;
+        this.stats.componentsProcessed += totalComponents;
+
+        return {
+            regNo,
+            name,
+            payload: {
+                marksUpdate,
+                PAT: patDetected
+            },
+            stats: {
+                reviews: totalReviews,
+                components: totalComponents
+            }
+        };
+    }
+
+    async updateStudent(regNo, payload, dryRun = false) {
+        if (dryRun) {
+            this.log('\n' + '='.repeat(80));
+            this.log('[DRY RUN] Payload that would be sent:');
+            this.log('='.repeat(80));
+            console.log(JSON.stringify(payload, null, 2));
+            this.log('='.repeat(80));
+            return { success: true, data: { message: 'Dry run - no API call made' } };
+        }
+
+        try {
+            const url = `${this.config.API_BASE_URL}/${regNo}`;
+            
+            this.debug(`🌐 Sending PUT request to: ${url}`);
+            this.log('\n📤 SENDING PAYLOAD:');
+            console.log(JSON.stringify(payload, null, 2));
+
+            const response = await axios.put(url, payload, {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.config.AUTH_TOKEN}`
+                },
+                timeout: this.config.TIMEOUT
+            });
+
+            this.log('\n📥 RESPONSE:');
+            console.log(JSON.stringify(response.data, null, 2));
+            return { success: true, data: response.data };
+        } catch (error) {
+            const errorMsg = error.response 
+                ? `HTTP ${error.response.status}: ${JSON.stringify(error.response.data, null, 2)}`
+                : error.message;
+            this.log(`\n❌ ERROR: ${errorMsg}`, 'ERROR');
+            return { success: false, error: errorMsg };
+        }
+    }
+
+    async processSheet(sheetName, data, dryRun = false) {
+        const department = this.getDepartment(sheetName);
+        
+        if (!department) {
+            this.log(`⚠️ Skipping unknown sheet: ${sheetName}`, 'WARN');
+            return;
+        }
+
+        this.log(`\n${'='.repeat(80)}`);
+        this.log(`📋 Processing: ${sheetName} (${department})`);
+        this.log(`🎯 Looking for student: ${this.config.TARGET_STUDENT}`);
+        this.log('='.repeat(80));
+
+        // Find the target student
+        const targetRow = data.find(row => {
+            const regNo = String(row['Register No'] || '').trim();
+            return regNo === this.config.TARGET_STUDENT;
+        });
+
+        if (!targetRow) {
+            this.log(`❌ Student ${this.config.TARGET_STUDENT} not found in sheet ${sheetName}`, 'WARN');
+            return;
+        }
+
+        this.log(`✅ Found student: ${targetRow['Name']} (${targetRow['Register No']})`);
+
+        const studentData = this.buildPayload(targetRow, department);
+
+        if (!studentData) {
+            this.log(`❌ Failed to build payload for student`, 'ERROR');
+            return;
+        }
+
+        const { regNo, name, payload, stats } = studentData;
+        this.stats.total++;
+
+        this.log(`\n👤 Student: ${name} (${regNo})`);
+        this.log(`  Reviews: ${stats.reviews}`);
+        this.log(`  Components: ${stats.components}`);
+
+        const result = await this.updateStudent(regNo, payload, dryRun);
+
+        if (result.success) {
+            this.log(`\n✅ SUCCESS!`);
+            this.stats.success++;
+        } else {
+            this.log(`\n❌ FAILED: ${result.error}`, 'ERROR');
+            this.stats.failed++;
+            this.errors.push({
+                regNo,
+                name,
+                sheet: sheetName,
+                error: result.error
+            });
+        }
+    }
+
+    async processAll(dryRun = false) {
+        try {
+            const sheets = this.loadExcel();
+
+            for (const [sheetName, data] of Object.entries(sheets)) {
+                await this.processSheet(sheetName, data, dryRun);
+            }
+
+            this.printSummary();
+
+        } catch (error) {
+            this.log(`❌ Fatal error: ${error.message}`, 'ERROR');
+            console.error(error.stack);
+            throw error;
+        }
+    }
+
+    printSummary() {
+        console.log('\n' + '='.repeat(80));
+        console.log('📊 FINAL SUMMARY');
+        console.log('='.repeat(80));
+        console.log(`🎯 Target Student: ${this.config.TARGET_STUDENT}`);
+        console.log(`✅ Students Processed: ${this.stats.total}`);
+        console.log(`✅ Successful Updates: ${this.stats.success}`);
+        console.log(`❌ Failed Updates: ${this.stats.failed}`);
+        console.log(`📝 Total Reviews: ${this.stats.reviewsProcessed}`);
+        console.log(`📊 Total Components: ${this.stats.componentsProcessed}`);
+        console.log('='.repeat(80));
+
+        if (this.errors.length > 0) {
+            console.log('\n❌ ERRORS:');
+            this.errors.forEach((err, i) => {
+                console.log(`${i + 1}. ${err.name} (${err.regNo}): ${err.error}`);
+            });
+        }
+
+        console.log(`\n📄 Log file: ${this.logFile}`);
+    }
+}
+
+// ==================== CLI ====================
+function askQuestion(query) {
+    const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout
+    });
+
+    return new Promise(resolve => {
+        rl.question(query, answer => {
+            rl.close();
+            resolve(answer);
+        });
+    });
+}
+
+async function main() {
+    console.log('\n' + '='.repeat(80));
+    console.log('🎯 SINGLE STUDENT TEST MODE');
+    console.log('='.repeat(80));
+    console.log(`👤 Target Student: ${CONFIG.TARGET_STUDENT}`);
+    console.log(`📁 Excel: ${CONFIG.EXCEL_FILE}`);
+    console.log(`🌐 API: ${CONFIG.API_BASE_URL}/:regNo`);
+    console.log(`🔍 Debug Mode: ENABLED`);
+    console.log('='.repeat(80));
+
+    console.log('\nSelect Mode:');
+    console.log('1. DRY RUN (Shows payload, no API call)');
+    console.log('2. LIVE MODE (Actually updates database)');
+
+    const mode = await askQuestion('\nEnter mode (1 or 2): ');
+    const dryRun = mode.trim() === '1';
+
+    if (dryRun) {
+        console.log('\n🔍 DRY RUN MODE');
+        console.log('Will show complete payload without making API call');
+    } else {
+        console.log('\n⚠️  LIVE MODE - Will update database!');
+        const confirm = await askQuestion(`\nUpdate marks for student ${CONFIG.TARGET_STUDENT}? Type 'YES' to confirm: `);
+        
+        if (confirm.trim().toUpperCase() !== 'YES') {
+            console.log('❌ Operation cancelled');
+            process.exit(0);
+        }
+    }
+
+    const updater = new StudentMarksUpdater(CONFIG);
+    
+    console.log('\n🔄 Processing...\n');
+    await updater.processAll(dryRun);
+    
+    console.log('\n✅ Complete!\n');
+}
+
+if (require.main === module) {
+    main().catch(error => {
+        console.error('\n❌ Fatal error:', error.message);
+        console.error(error.stack);
+        process.exit(1);
+    });
+}
+
+module.exports = StudentMarksUpdater;
