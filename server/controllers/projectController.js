@@ -97,11 +97,12 @@ export async function createProject(req, res, next) {
       );
     }
 
-    // ✅ Extract both requiresContribution and contributionType from marking schema
+    // ✅ Extract requiresContribution, contributionType, and internshipType from marking schema
     const schemaRequiresContribution = markingSchema.requiresContribution || false;
     const schemaContributionType = markingSchema.contributionType || 'none';
+    const schemaInternshipType = markingSchema.internshipType || 'none'; // ✅ NEW
 
-    console.log(`📝 Schema contribution settings: requiresContribution=${schemaRequiresContribution}, contributionType=${schemaContributionType}`);
+    console.log(`📝 Schema contribution settings: requiresContribution=${schemaRequiresContribution}, contributionType=${schemaContributionType}, internshipType=${schemaInternshipType}`);
 
     const reviewKeys = markingSchema.reviews.map((review) => review.reviewName);
     const defaultDeadlinesMap = new Map();
@@ -128,8 +129,9 @@ export async function createProject(req, res, next) {
           deadline,
           school: studSchool,
           department: studDept,
-          requiresContribution, // Allow override from request body
-          contributionType, // ✅ NEW: Allow override from request body
+          requiresContribution,
+          contributionType,
+          internshipType, // ✅ NEW: Allow override from request body
         } = studentObj;
 
         if (studSchool !== school || studDept !== department) {
@@ -191,8 +193,11 @@ export async function createProject(req, res, next) {
             ? requiresContribution 
             : schemaRequiresContribution;
 
-        // ✅ NEW: Use student-specific contributionType if provided, otherwise use schema default
+        // ✅ Use student-specific contributionType if provided, otherwise use schema default
         const studentContributionType = contributionType || schemaContributionType;
+
+        // ✅ NEW: Use student-specific internshipType if provided, otherwise use schema default
+        const studentInternshipType = internshipType || schemaInternshipType;
 
         // ✅ Validate contributionType
         const validContributionTypes = ['none', 'Patent Filed', 'Journal Publication', 'Book Chapter Contribution'];
@@ -202,7 +207,22 @@ export async function createProject(req, res, next) {
           );
         }
 
-        console.log(`👤 Creating student ${regNo}: requiresContribution=${studentRequiresContribution}, contributionType=${studentContributionType}`);
+        // ✅ NEW: Validate internshipType
+        const validInternshipTypes = ['none', 'Cdc approved', 'Technology learnt', 'SRIP', 'Centre'];
+        if (!validInternshipTypes.includes(studentInternshipType)) {
+          throw new Error(
+            `Invalid internship type "${studentInternshipType}" for student ${regNo}. Must be one of: ${validInternshipTypes.join(', ')}`
+          );
+        }
+
+        // ✅ NEW: Validate internshipType based on department
+        if (department !== 'internship' && studentInternshipType !== 'none') {
+          throw new Error(
+            `internshipType can only have values other than "none" when department is "internship". Student ${regNo} has department "${department}" with internshipType "${studentInternshipType}"`
+          );
+        }
+
+        console.log(`👤 Creating student ${regNo}: requiresContribution=${studentRequiresContribution}, contributionType=${studentContributionType}, internshipType=${studentInternshipType}`);
 
         const student = new Student({
           regNo,
@@ -214,12 +234,13 @@ export async function createProject(req, res, next) {
           school,
           department,
           PAT: false,
-          requiresContribution: studentRequiresContribution, // ✅ Added field
-          contributionType: studentContributionType, // ✅ NEW: Added field
+          requiresContribution: studentRequiresContribution,
+          contributionType: studentContributionType,
+          internshipType: studentInternshipType, // ✅ NEW: Added field
         });
 
         await student.save({ session });
-        console.log(`✅ Student ${regNo} created successfully with contributionType: ${studentContributionType}`);
+        console.log(`✅ Student ${regNo} created successfully with contributionType: ${studentContributionType}, internshipType: ${studentInternshipType}`);
         return student._id;
       })
     );
@@ -248,7 +269,8 @@ export async function createProject(req, res, next) {
         name: newProject.name,
         studentsCount: studentIds.length,
         requiresContribution: schemaRequiresContribution,
-        contributionType: schemaContributionType, // ✅ NEW: Include in response
+        contributionType: schemaContributionType,
+        internshipType: schemaInternshipType, // ✅ NEW: Include in response
       },
     });
   } catch (error) {
@@ -279,7 +301,9 @@ export async function createProject(req, res, next) {
       error.message.includes("Student already exists") ||
       error.message.includes("Guide faculty") ||
       error.message.includes("mismatched school") ||
-      error.message.includes("Invalid contribution type")
+      error.message.includes("Invalid contribution type") ||
+      error.message.includes("Invalid internship type") || // ✅ NEW
+      error.message.includes("internshipType can only have values") // ✅ NEW
     ) {
       return res.status(400).json({
         success: false,
@@ -298,8 +322,6 @@ export async function createProject(req, res, next) {
     session.endSession();
   }
 }
-
-
 
   export async function getAllProjects(req, res) {
     try {
@@ -412,15 +434,12 @@ export async function createProject(req, res, next) {
   }
 
 export async function createProjectsBulk(req, res) {
-  console.log(
-    "🚀 [BULK CREATE] Starting bulk project creation at",
-    new Date().toISOString()
-  );
-  console.log("📥 [REQUEST BODY]", JSON.stringify(req.body, null, 2));
+  console.log("📦 [BULK CREATE] Starting bulk project creation at", new Date().toISOString());
+  console.log("📦 [REQUEST BODY]", JSON.stringify(req.body, null, 2));
 
   const session = await mongoose.startSession();
   console.log("✅ [SESSION] MongoDB session created successfully");
-
+  
   let transactionCommitted = false;
   const transactionStart = Date.now();
 
@@ -430,13 +449,13 @@ export async function createProjectsBulk(req, res) {
       readConcern: { level: "majority" },
       writeConcern: { w: "majority", j: true },
     });
-    console.log("🔄 [TRANSACTION] Transaction started with 50s timeout");
+    console.log("✅ [TRANSACTION] Transaction started with 50s timeout");
 
     const { school, department, projects, guideFacultyEmpId } = req.body;
-    console.log(
-      `📋 [VALIDATION] School: ${school}, Department: ${department}, Projects count: ${projects?.length}, Guide: ${guideFacultyEmpId}`
-    );
 
+    console.log("🔍 [VALIDATION] School:", school, "Department:", department, "Projects count:", projects?.length, "Guide:", guideFacultyEmpId);
+
+    // ========== VALIDATION ==========
     if (!school || !department) {
       console.log("❌ [VALIDATION ERROR] Missing school or department");
       await session.abortTransaction();
@@ -448,11 +467,7 @@ export async function createProjectsBulk(req, res) {
     }
 
     if (!Array.isArray(projects) || projects.length === 0) {
-      console.log(
-        "❌ [VALIDATION ERROR] Invalid projects array:",
-        typeof projects,
-        projects?.length
-      );
+      console.log("❌ [VALIDATION ERROR] Invalid projects array:", typeof projects, projects?.length);
       await session.abortTransaction();
       await session.endSession();
       return res.status(400).json({
@@ -473,18 +488,12 @@ export async function createProjectsBulk(req, res) {
 
     console.log("✅ [VALIDATION] All basic validations passed");
 
-    console.log(
-      `🔍 [DB QUERY] Searching for marking schema: ${school}-${department}`
-    );
-    const markingSchema = await MarkingSchema.findOne({
-      school,
-      department,
-    }).session(session);
+    // ========== FETCH MARKING SCHEMA ==========
+    console.log("🔍 [DB QUERY] Searching for marking schema:", school, "-", department);
+    const markingSchema = await MarkingSchema.findOne({ school, department }).session(session);
 
     if (!markingSchema) {
-      console.log(
-        `❌ [DB ERROR] Marking schema not found for ${school}-${department}`
-      );
+      console.log("❌ [DB ERROR] Marking schema not found for", school, "-", department);
       await session.abortTransaction();
       await session.endSession();
       return res.status(400).json({
@@ -492,109 +501,79 @@ export async function createProjectsBulk(req, res) {
         message: `Marking schema not found for school: ${school}, department: ${department}`,
       });
     }
-    console.log("✅ [DB SUCCESS] Marking schema found:", markingSchema._id);
-    console.log(
-      "📊 [SCHEMA INFO] Reviews:",
-      markingSchema.reviews?.map((r) => r.reviewName)
-    );
-    
-    // Extract requiresContribution from marking schema
-    const schemaRequiresContribution = markingSchema.requiresContribution || false;
-    console.log("📝 [SCHEMA INFO] requiresContribution:", schemaRequiresContribution);
 
-    console.log(
-      `🔍 [DB QUERY] Searching for guide faculty: ${guideFacultyEmpId}`
-    );
-    const guideFacultyDoc = await Faculty.findOne({
-      employeeId: guideFacultyEmpId,
-    }).session(session);
+    console.log("✅ [DB SUCCESS] Marking schema found:", markingSchema._id);
+    console.log("📋 [SCHEMA INFO] Reviews:", markingSchema.reviews?.map(r => r.reviewName));
+
+    // ✅ Extract requiresContribution, contributionType, and internshipType from marking schema
+    const schemaRequiresContribution = markingSchema.requiresContribution || false;
+    const schemaContributionType = markingSchema.contributionType || 'none';
+    const schemaInternshipType = markingSchema.internshipType || 'none'; // ✅ NEW
+
+    console.log("📝 [SCHEMA INFO] requiresContribution:", schemaRequiresContribution);
+    console.log("📝 [SCHEMA INFO] contributionType:", schemaContributionType);
+    console.log("📝 [SCHEMA INFO] internshipType:", schemaInternshipType); // ✅ NEW
+
+    // ========== FETCH GUIDE FACULTY ==========
+    console.log("🔍 [DB QUERY] Searching for guide faculty:", guideFacultyEmpId);
+    const guideFacultyDoc = await Faculty.findOne({ employeeId: guideFacultyEmpId }).session(session);
 
     if (!guideFacultyDoc) {
-      console.log(
-        `❌ [DB ERROR] Guide faculty not found: ${guideFacultyEmpId} in ${school}`
-      );
+      console.log("❌ [DB ERROR] Guide faculty not found:", guideFacultyEmpId, "in school:", school);
       await session.abortTransaction();
       await session.endSession();
       return res.status(400).json({
         success: false,
-        message: `Guide faculty with employee ID ${guideFacultyEmpId} not found in school: ${school}`,
+        message: `Guide faculty with employee ID ${guideFacultyEmpId} not found in school ${school}`,
       });
     }
 
-    console.log(
-      "✅ [DB SUCCESS] Guide faculty found:",
-      guideFacultyDoc._id,
-      guideFacultyDoc.name
-    );
+    console.log("✅ [DB SUCCESS] Guide faculty found:", guideFacultyDoc._id, guideFacultyDoc.name);
 
-    const reviewKeys = markingSchema.reviews.map((review) => review.reviewName);
-    console.log("📝 [PROCESSING] Review keys:", reviewKeys);
+    // ========== PREPARE REVIEW STRUCTURE ==========
+    const reviewKeys = markingSchema.reviews.map(review => review.reviewName);
+    console.log("📋 [PROCESSING] Review keys:", reviewKeys);
 
-    console.log(
-      "✅ [FIXED] Using plain object for defaultDeadlinesObj instead of Map()"
-    );
+    console.log("🔧 [FIXED] Using plain object for defaultDeadlinesObj instead of Map");
     const defaultDeadlinesObj = {};
-    markingSchema.reviews.forEach((review) => {
-      const deadlineInfo =
-        review.deadline && review.deadline.from && review.deadline.to
-          ? { from: review.deadline.from, to: review.deadline.to }
-          : null;
-
+    markingSchema.reviews.forEach(review => {
+      const deadlineInfo = review.deadline && review.deadline.from && review.deadline.to
+        ? { from: review.deadline.from, to: review.deadline.to }
+        : null;
       defaultDeadlinesObj[review.reviewName] = deadlineInfo;
-      console.log(`📅 [DEADLINE] ${review.reviewName}:`, deadlineInfo);
+      console.log("📅 [DEADLINE]", review.reviewName, ":", deadlineInfo);
     });
 
-    console.log("🏗️  [PROCESSING] Starting project creation loop");
+    // ========== PROCESS PROJECTS ==========
+    console.log("🔄 [PROCESSING] Starting project creation loop");
     const results = { created: 0, errors: 0, details: [] };
-
     const batchSize = 2;
-    console.log(
-      `📦 [BATCH INFO] Processing ${projects.length} projects in batches of ${batchSize}`
-    );
 
-    for (
-      let batchStart = 0;
-      batchStart < projects.length;
-      batchStart += batchSize
-    ) {
+    console.log("📦 [BATCH INFO] Processing", projects.length, "projects in batches of", batchSize);
+
+    for (let batchStart = 0; batchStart < projects.length; batchStart += batchSize) {
       const batch = projects.slice(batchStart, batchStart + batchSize);
       const batchNumber = Math.floor(batchStart / batchSize) + 1;
       const totalBatches = Math.ceil(projects.length / batchSize);
 
-      console.log(
-        `\n📦 [BATCH ${batchNumber}/${totalBatches}] Processing projects ${
-          batchStart + 1
-        }-${Math.min(batchStart + batchSize, projects.length)}`
-      );
+      console.log(`\n📦 [BATCH ${batchNumber}/${totalBatches}] Processing projects ${batchStart + 1}-${Math.min(batchStart + batchSize, projects.length)}`);
 
       const elapsedTime = Date.now() - transactionStart;
       if (elapsedTime > 45000) {
-        console.log(
-          `⚠️ [TIMEOUT WARNING] Transaction running for ${elapsedTime}ms, approaching timeout`
-        );
+        console.log("⚠️ [TIMEOUT WARNING] Transaction running for", elapsedTime, "ms, approaching timeout");
       }
 
       for (let i = 0; i < batch.length; i++) {
         const globalIndex = batchStart + i;
         const project = batch[i];
-        console.log(
-          `\n🔄 [PROJECT ${globalIndex + 1}/${projects.length}] Processing: ${
-            project.name || "Unnamed"
-          }`
-        );
-        console.log(`📊 [PROJECT DATA]`, JSON.stringify(project, null, 2));
+
+        console.log(`\n🎯 [PROJECT ${globalIndex + 1}/${projects.length}] Processing:`, project.name || "Unnamed");
+        console.log("📄 [PROJECT DATA]", JSON.stringify(project, null, 2));
 
         try {
-          if (
-            !project.name ||
-            !Array.isArray(project.students) ||
-            project.students.length === 0
-          ) {
-            console.log(
-              `❌ [PROJECT ERROR] Invalid project data - name: ${!!project.name}, students: ${Array.isArray(
-                project.students
-              )}, count: ${project.students?.length}`
-            );
+          // Validate project structure
+          if (!project.name || !Array.isArray(project.students) || project.students.length === 0) {
+            console.log("❌ [PROJECT ERROR] Invalid project data - name:", !!project.name, "students:", Array.isArray(project.students), "count:", project.students?.length);
             results.errors++;
             results.details.push({
               project: project.name || `Project ${globalIndex + 1}`,
@@ -603,16 +582,10 @@ export async function createProjectsBulk(req, res) {
             continue;
           }
 
-          console.log(
-            `🔍 [TYPE CHECK] Project type: "${project.type}", Valid types: ["hardware", "software"]`
-          );
-          if (
-            !project.type ||
-            !["hardware", "software"].includes(project.type.toLowerCase())
-          ) {
-            console.log(
-              `❌ [TYPE ERROR] Invalid project type: "${project.type}"`
-            );
+          // Validate project type
+          console.log("🔍 [TYPE CHECK] Project type:", project.type, "Valid types: hardware, software");
+          if (!project.type || !["hardware", "software"].includes(project.type.toLowerCase())) {
+            console.log("❌ [TYPE ERROR] Invalid project type:", project.type);
             results.errors++;
             results.details.push({
               project: project.name || `Project ${globalIndex + 1}`,
@@ -621,9 +594,8 @@ export async function createProjectsBulk(req, res) {
             continue;
           }
 
-          console.log(
-            `🔍 [DUPLICATE CHECK] Searching for existing project: ${project.name}`
-          );
+          // Check for duplicate projects
+          console.log("🔍 [DUPLICATE CHECK] Searching for existing project:", project.name);
           const existingProject = await Project.findOne({
             name: project.name,
             school,
@@ -631,9 +603,7 @@ export async function createProjectsBulk(req, res) {
           }).session(session);
 
           if (existingProject) {
-            console.log(
-              `❌ [DUPLICATE ERROR] Project already exists: ${project.name}`
-            );
+            console.log("❌ [DUPLICATE ERROR] Project already exists:", project.name);
             results.errors++;
             results.details.push({
               project: project.name,
@@ -642,21 +612,15 @@ export async function createProjectsBulk(req, res) {
             continue;
           }
 
-          console.log(
-            `✅ [PROJECT VALID] Project validation passed: ${project.name}`
-          );
-          const studentIds = [];
+          console.log("✅ [PROJECT VALID] Project validation passed:", project.name);
 
-          console.log(
-            `👥 [STUDENTS] Processing ${project.students.length} students`
-          );
-          
+          // ========== PROCESS STUDENTS ==========
+          const studentIds = [];
+          console.log("👥 [STUDENTS] Processing", project.students.length, "students");
+
           for (let j = 0; j < project.students.length; j++) {
             const studentObj = project.students[j];
-            console.log(
-              `\n  👤 [STUDENT ${j + 1}] Processing:`,
-              studentObj.regNo
-            );
+            console.log(`\n👤 [STUDENT ${j + 1}] Processing:`, studentObj.regNo);
 
             const {
               regNo,
@@ -664,57 +628,40 @@ export async function createProjectsBulk(req, res) {
               emailId,
               school: studSchool,
               department: studDepartment,
-              requiresContribution, // Allow override from request body
+              requiresContribution,
+              contributionType, // ✅ Existing
+              internshipType, // ✅ NEW: Allow override from request body
             } = studentObj;
 
+            // Validate required fields
             if (!regNo || !studentName || !emailId) {
-              console.log(
-                `  ❌ [STUDENT ERROR] Missing fields - regNo: ${!!regNo}, name: ${!!studentName}, email: ${!!emailId}`
-              );
-              throw new Error(
-                "Student missing required fields (regNo, name, emailId)"
-              );
+              console.log("❌ [STUDENT ERROR] Missing fields - regNo:", !!regNo, "name:", !!studentName, "email:", !!emailId);
+              throw new Error(`Student missing required fields: regNo, name, emailId`);
             }
 
+            // Validate school/department match
             if (studSchool !== school || studDepartment !== department) {
-              console.log(
-                `  ❌ [STUDENT ERROR] School/dept mismatch - Expected: ${school}/${department}, Got: ${studSchool}/${studDepartment}`
-              );
-              throw new Error(
-                `Student ${regNo} has mismatched school or department`
-              );
+              console.log("❌ [STUDENT ERROR] School/dept mismatch - Expected:", school, department, "Got:", studSchool, studDepartment);
+              throw new Error(`Student ${regNo} has mismatched school or department`);
             }
 
-            console.log(
-              `  🔍 [STUDENT CHECK] Searching for existing student: ${regNo}`
-            );
-            const existingStudent = await Student.findOne({ regNo }).session(
-              session
-            );
+            // Check for duplicate students
+            console.log("🔍 [STUDENT CHECK] Searching for existing student:", regNo);
+            const existingStudent = await Student.findOne({ regNo }).session(session);
+
             if (existingStudent) {
-              console.log(
-                `  ❌ [STUDENT ERROR] Student already exists: ${regNo}`
-              );
+              console.log("❌ [STUDENT ERROR] Student already exists:", regNo);
               throw new Error(`Student already exists with regNo ${regNo}`);
             }
 
-            console.log(
-              `  ✅ [FIXED] Using plain object for reviewsObj instead of Map()`
-            );
-            console.log(
-              `  🔄 [REVIEWS] Creating reviews for ${reviewKeys.length} review types`
-            );
-            const reviewsObj = {};
+            // ========== CREATE REVIEW STRUCTURE ==========
+            console.log("🔧 [FIXED] Using plain object for reviewsObj instead of Map");
+            console.log("📝 [REVIEWS] Creating reviews for", reviewKeys.length, "review types");
 
+            const reviewsObj = {};
             for (const reviewKey of reviewKeys) {
-              const reviewDef = markingSchema.reviews.find(
-                (rev) => rev.reviewName === reviewKey
-              );
-              console.log(
-                `    📝 [REVIEW] Processing ${reviewKey}, components: ${
-                  reviewDef?.components?.length || 0
-                }`
-              );
+              const reviewDef = markingSchema.reviews.find(rev => rev.reviewName === reviewKey);
+              console.log("📝 [REVIEW] Processing", reviewKey, "components:", reviewDef?.components?.length || 0);
 
               const marks = {};
               if (reviewDef && Array.isArray(reviewDef.components)) {
@@ -731,24 +678,49 @@ export async function createProjectsBulk(req, res) {
               };
 
               reviewsObj[reviewKey] = reviewData;
-              console.log(
-                `    ✅ [REVIEW SET] ${reviewKey}:`,
-                Object.keys(marks)
-              );
+              console.log("✅ [REVIEW SET]", reviewKey, ":", Object.keys(marks));
             }
 
-            // Use student-specific requiresContribution if provided, otherwise use schema default
+            // ✅ Use student-specific requiresContribution if provided, otherwise use schema default
             const studentRequiresContribution = 
               requiresContribution !== undefined 
                 ? requiresContribution 
                 : schemaRequiresContribution;
-            
-            console.log(`  📝 [CONTRIBUTION] Setting requiresContribution: ${studentRequiresContribution}`);
 
-            console.log(`  🏗️  [STUDENT CREATE] Creating student document`);
-            console.log(
-              `  ✅ [FIXED] Using plain objects for reviews and deadline`
-            );
+            // ✅ Use student-specific contributionType if provided, otherwise use schema default
+            const studentContributionType = contributionType || schemaContributionType;
+
+            // ✅ NEW: Use student-specific internshipType if provided, otherwise use schema default
+            const studentInternshipType = internshipType || schemaInternshipType;
+
+            // ✅ Validate contributionType
+            const validContributionTypes = ['none', 'Patent Filed', 'Journal Publication', 'Book Chapter Contribution'];
+            if (!validContributionTypes.includes(studentContributionType)) {
+              throw new Error(
+                `Invalid contribution type "${studentContributionType}" for student ${regNo}. Must be one of: ${validContributionTypes.join(', ')}`
+              );
+            }
+
+            // ✅ NEW: Validate internshipType
+            const validInternshipTypes = ['none', 'Cdc approved', 'Technology learnt', 'SRIP', 'Centre'];
+            if (!validInternshipTypes.includes(studentInternshipType)) {
+              throw new Error(
+                `Invalid internship type "${studentInternshipType}" for student ${regNo}. Must be one of: ${validInternshipTypes.join(', ')}`
+              );
+            }
+
+            // ✅ NEW: Validate internshipType based on department
+            if (department !== 'internship' && studentInternshipType !== 'none') {
+              throw new Error(
+                `internshipType can only have values other than "none" when department is "internship". Student ${regNo} has department "${department}" with internshipType "${studentInternshipType}"`
+              );
+            }
+
+            console.log(`  📝 [CONTRIBUTION] Setting requiresContribution: ${studentRequiresContribution}, contributionType: ${studentContributionType}, internshipType: ${studentInternshipType}`);
+
+            // ========== CREATE STUDENT DOCUMENT ==========
+            console.log("✅ [STUDENT CREATE] Creating student document");
+            console.log("🔧 [FIXED] Using plain objects for reviews and deadline");
 
             const student = new Student({
               regNo,
@@ -760,22 +732,20 @@ export async function createProjectsBulk(req, res) {
               PAT: false,
               school,
               department,
-              requiresContribution: studentRequiresContribution, // Added field
+              requiresContribution: studentRequiresContribution,
+              contributionType: studentContributionType, // ✅ Existing
+              internshipType: studentInternshipType, // ✅ NEW: Added field
             });
 
-            console.log(
-              `  💾 [STUDENT SAVE] Attempting to save student: ${regNo}`
-            );
+            console.log("💾 [STUDENT SAVE] Attempting to save student:", regNo);
             await student.save({ session });
-            console.log(
-              `  ✅ [STUDENT SUCCESS] Student saved: ${regNo} -> ${student._id} with requiresContribution: ${studentRequiresContribution}`
-            );
+            console.log(`✅ [STUDENT SUCCESS] Student saved: ${regNo} - ${student._id} with requiresContribution: ${studentRequiresContribution}, contributionType: ${studentContributionType}, internshipType: ${studentInternshipType}`);
+
             studentIds.push(student._id);
           }
 
-          console.log(
-            `\n🏗️  [PROJECT CREATE] Creating project document with ${studentIds.length} students`
-          );
+          // ========== CREATE PROJECT DOCUMENT ==========
+          console.log("🎯 [PROJECT CREATE] Creating project document with", studentIds.length, "students");
           const projectData = {
             name: project.name,
             students: studentIds,
@@ -786,27 +756,19 @@ export async function createProjectsBulk(req, res) {
             specialization: project.specialization || "",
             type: project.type.toLowerCase(),
           };
-          console.log(
-            `📊 [PROJECT DATA]`,
-            JSON.stringify(projectData, null, 2)
-          );
+
+          console.log("📄 [PROJECT DATA]", JSON.stringify(projectData, null, 2));
 
           const newProject = new Project(projectData);
-
-          console.log(
-            `💾 [PROJECT SAVE] Attempting to save project: ${project.name}`
-          );
+          console.log("💾 [PROJECT SAVE] Attempting to save project:", project.name);
           await newProject.save({ session });
-          console.log(
-            `✅ [PROJECT SUCCESS] Project saved: ${project.name} -> ${newProject._id}`
-          );
+
+          console.log(`✅ [PROJECT SUCCESS] Project saved: ${project.name} - ${newProject._id}`);
           results.created++;
+
         } catch (error) {
-          console.log(
-            `\n💥 [PROJECT FAILED] Error in project ${globalIndex + 1}:`,
-            error.message
-          );
-          console.log(`📊 [FULL ERROR]`, error);
+          console.log(`❌ [PROJECT FAILED] Error in project ${globalIndex + 1}:`, error.message);
+          console.log("🔍 [FULL ERROR]", error);
           results.errors++;
           results.details.push({
             project: project.name || `Project ${globalIndex + 1}`,
@@ -815,37 +777,25 @@ export async function createProjectsBulk(req, res) {
         }
       }
 
+      // Pause between batches to avoid overloading
       if (batchStart + batchSize < projects.length) {
-        console.log(`⏸️  [BATCH PAUSE] Pausing 200ms between batches...`);
-        await new Promise((resolve) => setTimeout(resolve, 200));
+        console.log("⏸️ [BATCH PAUSE] Pausing 200ms between batches...");
+        await new Promise(resolve => setTimeout(resolve, 200));
       }
 
-      const progress = (
-        ((batchStart + batchSize) / projects.length) *
-        100
-      ).toFixed(1);
-      console.log(
-        `📈 [PROGRESS] ${progress}% completed (${Math.min(
-          batchStart + batchSize,
-          projects.length
-        )}/${projects.length} projects)`
-      );
+      const progress = ((batchStart + batchSize) / projects.length * 100).toFixed(1);
+      console.log(`📊 [PROGRESS] ${progress}% completed (${Math.min(batchStart + batchSize, projects.length)}/${projects.length} projects)`);
     }
 
+    // ========== COMMIT TRANSACTION ==========
     const transactionDuration = Date.now() - transactionStart;
-    console.log(
-      `\n🔄 [TRANSACTION] Attempting to commit transaction after ${transactionDuration}ms`
-    );
-    console.log(
-      `📊 [RESULTS SUMMARY] Created: ${results.created}, Errors: ${results.errors}`
-    );
+    console.log("💾 [TRANSACTION] Attempting to commit transaction after", transactionDuration, "ms");
+    console.log("📊 [RESULTS SUMMARY] Created:", results.created, "Errors:", results.errors);
 
     try {
       await session.commitTransaction();
       transactionCommitted = true;
-      console.log(
-        `✅ [TRANSACTION SUCCESS] Transaction committed successfully in ${transactionDuration}ms`
-      );
+      console.log("✅ [TRANSACTION SUCCESS] Transaction committed successfully in", transactionDuration, "ms");
 
       const response = {
         success: true,
@@ -857,57 +807,50 @@ export async function createProjectsBulk(req, res) {
           averagePerProject: Math.round(transactionDuration / projects.length),
         },
         requiresContribution: schemaRequiresContribution,
+        contributionType: schemaContributionType,
+        internshipType: schemaInternshipType, // ✅ NEW: Include in response
       };
 
-      console.log(`🎉 [FINAL SUCCESS]`, JSON.stringify(response, null, 2));
-
+      console.log("🎉 [FINAL SUCCESS]", JSON.stringify(response, null, 2));
       await session.endSession();
-      console.log(`✅ [SESSION END] Session ended successfully`);
-
+      console.log("✅ [SESSION END] Session ended successfully");
       return res.status(201).json(response);
-    } catch (commitError) {
-      console.log(
-        `❌ [COMMIT ERROR] Transaction commit failed:`,
-        commitError.message
-      );
-      console.log(`📊 [COMMIT DETAILS]`, commitError);
 
+    } catch (commitError) {
+      console.log("❌ [COMMIT ERROR] Transaction commit failed:", commitError.message);
+      console.log("🔍 [COMMIT DETAILS]", commitError);
       transactionCommitted = false;
       throw commitError;
     }
+
   } catch (error) {
     const errorDuration = Date.now() - transactionStart;
-    console.log(
-      `\n💥 [FATAL ERROR] Critical error in bulk project creation after ${errorDuration}ms:`,
-      error.message
-    );
-    console.log(`📊 [FULL ERROR STACK]`, error.stack);
+    console.log("❌ [FATAL ERROR] Critical error in bulk project creation after", errorDuration, "ms:", error.message);
+    console.log("🔍 [FULL ERROR STACK]", error.stack);
 
+    // Abort transaction if not committed
     if (!transactionCommitted) {
-      console.log(`🔄 [CLEANUP] Attempting to abort transaction`);
+      console.log("🔄 [CLEANUP] Attempting to abort transaction");
       try {
         if (session.inTransaction()) {
           await session.abortTransaction();
-          console.log(`🚫 [ABORT SUCCESS] Transaction aborted`);
+          console.log("✅ [ABORT SUCCESS] Transaction aborted");
         } else {
-          console.log(
-            `ℹ️  [ABORT SKIP] No active transaction to abort - already aborted by MongoDB`
-          );
+          console.log("ℹ️ [ABORT SKIP] No active transaction to abort - already aborted by MongoDB");
         }
       } catch (abortError) {
-        console.log(`❌ [ABORT ERROR]`, abortError.message);
+        console.log("❌ [ABORT ERROR]", abortError.message);
       }
     } else {
-      console.log(
-        `ℹ️  [SKIP ABORT] Transaction already committed, skipping abort`
-      );
+      console.log("ℹ️ [SKIP ABORT] Transaction already committed, skipping abort");
     }
 
+    // End session
     try {
       await session.endSession();
-      console.log(`✅ [SESSION END] Session ended successfully`);
+      console.log("✅ [SESSION END] Session ended successfully");
     } catch (sessionError) {
-      console.log(`❌ [SESSION ERROR]`, sessionError.message);
+      console.log("❌ [SESSION ERROR]", sessionError.message);
     }
 
     const errorResponse = {
@@ -916,21 +859,19 @@ export async function createProjectsBulk(req, res) {
       error: error.message,
       timing: {
         duration: errorDuration,
-        failedAt: "transaction_processing",
+        failedAt: "transaction/processing",
       },
     };
 
-    console.log(`💀 [FINAL ERROR]`, JSON.stringify(errorResponse, null, 2));
+    console.log("❌ [FINAL ERROR]", JSON.stringify(errorResponse, null, 2));
     return res.status(500).json(errorResponse);
+
   } finally {
     const totalDuration = Date.now() - transactionStart;
-    console.log(
-      `🏁 [COMPLETE] Bulk project creation function completed at ${new Date().toISOString()}`
-    );
-    console.log(`⏱️  [TIMING] Total execution time: ${totalDuration}ms`);
+    console.log("🏁 [COMPLETE] Bulk project creation function completed at", new Date().toISOString());
+    console.log("⏱️ [TIMING] Total execution time:", totalDuration, "ms");
   }
 }
-
 
   export async function deleteProject(req, res) {
     try {
@@ -968,7 +909,7 @@ export async function getAllGuideProjects(req, res) {
       .populate({
         path: "students",
         model: "Student",
-        select: "regNo name emailId reviews pptApproved deadline school department PAT requiresContribution contributionType", // ✅ Added contributionType
+        select: "regNo name emailId reviews pptApproved deadline school department PAT requiresContribution contributionType internshipType", // ✅ Added internshipType
       })
       .populate({
         path: "guideFaculty",
@@ -1039,8 +980,8 @@ export async function getAllGuideProjects(req, res) {
           }
         }
 
-        // ✅ Log requiresContribution and contributionType for debugging
-        console.log(`👤 Student ${student.name}: requiresContribution = ${student.requiresContribution}, contributionType = ${student.contributionType}`);
+        // ✅ Log requiresContribution, contributionType, and internshipType for debugging
+        console.log(`👤 Student ${student.name}: requiresContribution = ${student.requiresContribution}, contributionType = ${student.contributionType}, internshipType = ${student.internshipType}`);
 
         return {
           _id: student._id,
@@ -1057,7 +998,8 @@ export async function getAllGuideProjects(req, res) {
           department: student.department,
           PAT: student.PAT,
           requiresContribution: Boolean(student.requiresContribution || false),
-          contributionType: student.contributionType || 'none', // ✅ Added contributionType
+          contributionType: student.contributionType || 'none',
+          internshipType: student.internshipType || 'none', // ✅ NEW: Added internshipType
         };
       });
 
@@ -1070,11 +1012,11 @@ export async function getAllGuideProjects(req, res) {
 
     console.log("✅ All projects processed with full population and PPT data");
 
-    // ✅ Enhanced logging to verify PPT data, requiresContribution, and contributionType
+    // ✅ Enhanced logging to verify PPT data, requiresContribution, contributionType, and internshipType
     processedProjects.forEach((project) => {
       console.log(`\n🔍 [Backend] Project: ${project.name}`);
       project.students.forEach((student) => {
-        console.log(`  👤 Student: ${student.name} (requiresContribution: ${student.requiresContribution}, contributionType: ${student.contributionType})`);
+        console.log(`  👤 Student: ${student.name} (requiresContribution: ${student.requiresContribution}, contributionType: ${student.contributionType}, internshipType: ${student.internshipType})`);
         Object.keys(student.reviews || {}).forEach(reviewKey => {
           const review = student.reviews[reviewKey];
           if (review.pptApproved) {
@@ -1107,10 +1049,10 @@ export async function getAllGuideProjects(req, res) {
             console.log(
               `✅ Found schema for ${school}-${department} with ${
                 schema.reviews?.length || 0
-              } reviews (requiresContribution: ${schema.requiresContribution}, contributionType: ${schema.contributionType || 'none'})`
+              } reviews (requiresContribution: ${schema.requiresContribution}, contributionType: ${schema.contributionType || 'none'}, internshipType: ${schema.internshipType || 'none'})`
             );
             
-            // ✅ Enhanced logging for schema PPT requirements and contribution type
+            // ✅ Enhanced logging for schema PPT requirements, contributionType, and internshipType
             if (schema.reviews) {
               schema.reviews.forEach(review => {
                 console.log(`  📋 Schema Review ${review.reviewName}: PPT Required = ${!!review.pptApproved}`);
@@ -1142,7 +1084,7 @@ export async function getAllGuideProjects(req, res) {
           projectSchema.reviews?.map((r) => `${r.reviewName} (PPT: ${!!r.pptApproved})`) || []
         );
         console.log(
-          `📝 Contribution Type: ${projectSchema.contributionType || 'none'}`
+          `📝 Contribution Type: ${projectSchema.contributionType || 'none'}, Internship Type: ${projectSchema.internshipType || 'none'}`
         );
       }
 
@@ -1153,7 +1095,7 @@ export async function getAllGuideProjects(req, res) {
       };
     });
 
-    console.log("✅ Final response prepared with schemas, full population, PPT data, requiresContribution, and contributionType");
+    console.log("✅ Final response prepared with schemas, full population, PPT data, requiresContribution, contributionType, and internshipType");
 
     // ✅ Enhanced final data structure logging
     projectsWithSchemas.forEach((project) => {
@@ -1164,7 +1106,7 @@ export async function getAllGuideProjects(req, res) {
           student.reviews[key]?.pptApproved
         ).length;
         console.log(
-          `  - ${student.name}: ${Object.keys(student.reviews || {}).length} reviews, ${reviewsWithPPT} with PPT data, requiresContribution: ${student.requiresContribution}, contributionType: ${student.contributionType}`
+          `  - ${student.name}: ${Object.keys(student.reviews || {}).length} reviews, ${reviewsWithPPT} with PPT data, requiresContribution: ${student.requiresContribution}, contributionType: ${student.contributionType}, internshipType: ${student.internshipType}`
         );
       });
       console.log(`📋 Schema: ${project.markingSchema ? "YES" : "NO"}`);
@@ -1174,7 +1116,7 @@ export async function getAllGuideProjects(req, res) {
           `📋 Schema Reviews: ${project.markingSchema.reviews?.length || 0} total, ${schemaWithPPT} require PPT`
         );
         console.log(
-          `📝 Schema requiresContribution: ${project.markingSchema.requiresContribution}, contributionType: ${project.markingSchema.contributionType || 'none'}`
+          `📝 Schema requiresContribution: ${project.markingSchema.requiresContribution}, contributionType: ${project.markingSchema.contributionType || 'none'}, internshipType: ${project.markingSchema.internshipType || 'none'}`
         );
       }
     });
@@ -1193,10 +1135,6 @@ export async function getAllGuideProjects(req, res) {
     });
   }
 }
-
-
-
-
 
 export async function getAllPanelProjects(req, res) {
   try {
@@ -1226,7 +1164,7 @@ export async function getAllPanelProjects(req, res) {
       .populate({
         path: "students",
         model: "Student",
-        select: "regNo name emailId reviews pptApproved deadline school department PAT requiresContribution contributionType", // ✅ Added contributionType
+        select: "regNo name emailId reviews pptApproved deadline school department PAT requiresContribution contributionType internshipType", // ✅ Added internshipType
       })
       .populate({
         path: "guideFaculty",
@@ -1247,7 +1185,7 @@ export async function getAllPanelProjects(req, res) {
 
     console.log("Found panel projects:", panelProjects.length);
 
-    // ✅ Process each project and students with PPT data, requiresContribution, and contributionType
+    // ✅ Process each project and students with PPT data, requiresContribution, contributionType, and internshipType
     const processedProjects = panelProjects.map((project) => {
       console.log(`🔄 Processing panel project: ${project.name}`);
       const processedStudents = project.students.map((student) => {
@@ -1305,6 +1243,7 @@ export async function getAllPanelProjects(req, res) {
         console.log(`📅 Panel student ${student.name} deadlines:`, Object.keys(processedDeadlines));
         console.log(`📝 Panel student ${student.name} requiresContribution:`, student.requiresContribution);
         console.log(`📝 Panel student ${student.name} contributionType:`, student.contributionType);
+        console.log(`📝 Panel student ${student.name} internshipType:`, student.internshipType); // ✅ NEW
 
         return {
           _id: student._id,
@@ -1321,7 +1260,8 @@ export async function getAllPanelProjects(req, res) {
           department: student.department,
           PAT: student.PAT,
           requiresContribution: Boolean(student.requiresContribution || false),
-          contributionType: student.contributionType || 'none', // ✅ Added contributionType
+          contributionType: student.contributionType || 'none',
+          internshipType: student.internshipType || 'none', // ✅ NEW: Added internshipType
         };
       });
 
@@ -1332,13 +1272,13 @@ export async function getAllPanelProjects(req, res) {
       };
     });
 
-    console.log("✅ All panel projects processed with full population, PPT data, requiresContribution, and contributionType");
+    console.log("✅ All panel projects processed with full population, PPT data, requiresContribution, contributionType, and internshipType");
 
-    // ✅ Enhanced logging to verify PPT data, requiresContribution, and contributionType processing
+    // ✅ Enhanced logging to verify PPT data, requiresContribution, contributionType, and internshipType processing
     processedProjects.forEach((project) => {
       console.log(`\n🔍 [Panel Backend] Project: ${project.name}`);
       project.students.forEach((student) => {
-        console.log(`  👤 Student: ${student.name} (requiresContribution: ${student.requiresContribution}, contributionType: ${student.contributionType})`);
+        console.log(`  👤 Student: ${student.name} (requiresContribution: ${student.requiresContribution}, contributionType: ${student.contributionType}, internshipType: ${student.internshipType})`);
         Object.keys(student.reviews || {}).forEach(reviewKey => {
           const review = student.reviews[reviewKey];
           if (review.pptApproved) {
@@ -1372,10 +1312,10 @@ export async function getAllPanelProjects(req, res) {
             console.log(
               `✅ Found panel schema for ${school}-${department} with ${
                 schema.reviews?.length || 0
-              } reviews (requiresContribution: ${schema.requiresContribution}, contributionType: ${schema.contributionType || 'none'})`
+              } reviews (requiresContribution: ${schema.requiresContribution}, contributionType: ${schema.contributionType || 'none'}, internshipType: ${schema.internshipType || 'none'})`
             );
             
-            // ✅ Enhanced logging for schema PPT requirements and contribution type
+            // ✅ Enhanced logging for schema PPT requirements, contributionType, and internshipType
             if (schema.reviews) {
               schema.reviews.forEach(review => {
                 console.log(`  📋 Panel Schema Review ${review.reviewName}: PPT Required = ${!!review.pptApproved}`);
@@ -1407,7 +1347,7 @@ export async function getAllPanelProjects(req, res) {
           projectSchema.reviews?.map((r) => `${r.reviewName} (PPT: ${!!r.pptApproved})`) || []
         );
         console.log(
-          `📝 Contribution Type: ${projectSchema.contributionType || 'none'}`
+          `📝 Contribution Type: ${projectSchema.contributionType || 'none'}, Internship Type: ${projectSchema.internshipType || 'none'}`
         );
       }
 
@@ -1417,7 +1357,7 @@ export async function getAllPanelProjects(req, res) {
       };
     });
 
-    console.log("✅ Final panel response prepared with schemas, full population, PPT data, requiresContribution, and contributionType");
+    console.log("✅ Final panel response prepared with schemas, full population, PPT data, requiresContribution, contributionType, and internshipType");
 
     // ✅ Enhanced final data structure logging
     projectsWithSchemas.forEach((project) => {
@@ -1428,7 +1368,7 @@ export async function getAllPanelProjects(req, res) {
           student.reviews[key]?.pptApproved
         ).length;
         console.log(
-          `  - ${student.name}: ${Object.keys(student.reviews || {}).length} reviews, ${reviewsWithPPT} with PPT data, requiresContribution: ${student.requiresContribution}, contributionType: ${student.contributionType}`
+          `  - ${student.name}: ${Object.keys(student.reviews || {}).length} reviews, ${reviewsWithPPT} with PPT data, requiresContribution: ${student.requiresContribution}, contributionType: ${student.contributionType}, internshipType: ${student.internshipType}`
         );
       });
       console.log(`📋 Schema: ${project.markingSchema ? "YES" : "NO"}`);
@@ -1438,7 +1378,7 @@ export async function getAllPanelProjects(req, res) {
           `📋 Panel Schema Reviews: ${project.markingSchema.reviews?.length || 0} total, ${schemaWithPPT} require PPT`
         );
         console.log(
-          `📝 Panel Schema requiresContribution: ${project.markingSchema.requiresContribution}, contributionType: ${project.markingSchema.contributionType || 'none'}`
+          `📝 Panel Schema requiresContribution: ${project.markingSchema.requiresContribution}, contributionType: ${project.markingSchema.contributionType || 'none'}, internshipType: ${project.markingSchema.internshipType || 'none'}`
         );
       }
     });
@@ -1458,10 +1398,6 @@ export async function getAllPanelProjects(req, res) {
   }
 }
 
-
-
-
-
   /**
    * Update project details with review data
    */
@@ -1470,158 +1406,184 @@ export async function getAllPanelProjects(req, res) {
   // const Project = require('../models/Project'); // Adjust path as needed
   // const Student = require('../models/Student'); // Adjust path as needed
 
-  export const updateProjectDetails = async (req, res) => {
-    const session = await mongoose.startSession();
+export const updateProjectDetails = async (req, res) => {
+  const session = await mongoose.startSession();
 
-    try {
-      session.startTransaction();
+  try {
+    session.startTransaction();
 
-      const { projectId, projectUpdates, studentUpdates, pptApproved } = req.body;
+    const { projectId, projectUpdates, studentUpdates, pptApproved } = req.body;
 
-      console.log("=== [BACKEND] UPDATE PROJECT STARTED ===");
-      console.log("📋 [BACKEND] Project ID:", projectId);
-      console.log(
-        "📋 [BACKEND] Project Updates:",
-        JSON.stringify(projectUpdates, null, 2)
-      );
-      console.log(
-        "📋 [BACKEND] Student Updates:",
-        JSON.stringify(studentUpdates, null, 2)
-      );
+    console.log("=== [BACKEND] UPDATE PROJECT STARTED ===");
+    console.log("📋 [BACKEND] Project ID:", projectId);
+    console.log(
+      "📋 [BACKEND] Project Updates:",
+      JSON.stringify(projectUpdates, null, 2)
+    );
+    console.log(
+      "📋 [BACKEND] Student Updates:",
+      JSON.stringify(studentUpdates, null, 2)
+    );
 
-      // Find the project with session
-      const project = await Project.findById(projectId).session(session);
-      if (!project) {
-        await session.abortTransaction();
-        return res.status(404).json({
-          success: false,
-          message: "Project not found",
-        });
+    // Find the project with session
+    const project = await Project.findById(projectId).session(session);
+    if (!project) {
+      await session.abortTransaction();
+      return res.status(404).json({
+        success: false,
+        message: "Project not found",
+      });
+    }
+
+    console.log("✅ [BACKEND] Project found:", project.name);
+
+    // Update project fields (excluding immutable ones)
+    if (projectUpdates && typeof projectUpdates === "object") {
+      const immutableFields = ["_id", "students", "guideFaculty", "panel"];
+      const updatableFields = [
+        "name",
+        "school",
+        "department",
+        "specialization",
+        "type",
+        "bestProject",
+      ];
+
+      for (const key of Object.keys(projectUpdates)) {
+        if (!immutableFields.includes(key) && updatableFields.includes(key)) {
+          project[key] = projectUpdates[key];
+          console.log(`📋 [BACKEND] Updated ${key}:`, projectUpdates[key]);
+        }
+      }
+      await project.save({ session });
+      console.log("📋 [BACKEND] Project updated:", project.name);
+    }
+
+    // Process each student update sequentially (avoid parallel operations in transaction)
+    for (const update of studentUpdates || []) {
+      const {
+        studentId,
+        reviews: reviewsToUpdate,
+        PAT, // Extract PAT status
+        internshipType, // ✅ NEW: Extract internshipType from updates
+      } = update;
+
+      const student = await Student.findById(studentId).session(session);
+      if (!student) {
+        console.error("❌ [BACKEND] Student not found:", studentId);
+        continue;
       }
 
-      console.log("✅ [BACKEND] Project found:", project.name);
+      console.log("✅ [BACKEND] Processing student:", student.name);
+      console.log("🚫 [BACKEND] PAT status for student:", PAT);
 
-      // Update project fields (excluding immutable ones)
-      if (projectUpdates && typeof projectUpdates === "object") {
-        const immutableFields = ["_id", "students", "guideFaculty", "panel"];
-        const updatableFields = [
-          "name",
-          "school",
-          "department",
-          "specialization",
-          "type",
-          "bestProject",
-        ];
-
-        for (const key of Object.keys(projectUpdates)) {
-          if (!immutableFields.includes(key) && updatableFields.includes(key)) {
-            project[key] = projectUpdates[key];
-            console.log(`📋 [BACKEND] Updated ${key}:`, projectUpdates[key]);
-          }
-        }
-        await project.save({ session });
-        console.log("📋 [BACKEND] Project updated:", project.name);
-      }
-
-      // Process each student update sequentially (avoid parallel operations in transaction)
-      for (const update of studentUpdates || []) {
-        const {
-          studentId,
-          reviews: reviewsToUpdate,
-          PAT, // Extract PAT status
-        } = update;
-
-        const student = await Student.findById(studentId).session(session);
-        if (!student) {
-          console.error("❌ [BACKEND] Student not found:", studentId);
-          continue;
+      // Merge updates into existing reviews Map
+      for (const [reviewType, reviewData] of Object.entries(
+        reviewsToUpdate || {}
+      )) {
+        if (!student.reviews) {
+          student.reviews = new Map();
         }
 
-        console.log("✅ [BACKEND] Processing student:", student.name);
-        console.log("🚫 [BACKEND] PAT status for student:", PAT);
+        const newReviewData = {
+          marks: new Map(Object.entries(reviewData.marks || {})),
+          comments: reviewData.comments || "",
+          attendance: reviewData.attendance || { value: false, locked: false },
+          locked: reviewData.locked || false,
+          // ✅ Store contribution if provided
+          ...(reviewData.contribution !== undefined && {
+            contribution: String(reviewData.contribution), // Ensure string type
+          }),
+        };
 
-        // Merge updates into existing reviews Map
-        for (const [reviewType, reviewData] of Object.entries(
-          reviewsToUpdate || {}
-        )) {
-          if (!student.reviews) {
-            student.reviews = new Map();
-          }
-
-          const newReviewData = {
-            marks: new Map(Object.entries(reviewData.marks || {})),
-            comments: reviewData.comments || "",
-            attendance: reviewData.attendance || { value: false, locked: false },
-            locked: reviewData.locked || false,
-            // ✅ NEW: Store contribution if provided
-            ...(reviewData.contribution !== undefined && {
-              contribution: String(reviewData.contribution), // Ensure string type
-            }),
-          };
-
-          if ("pptApproved" in reviewData) {
-            newReviewData.pptApproved = reviewData.pptApproved;
-          }
-
-          console.log(
-            `📋 [BACKEND] Updating review ${reviewType} for ${student.name}:`,
-            newReviewData
-          );
-
-          if (typeof student.reviews.set === "function") {
-            student.reviews.set(reviewType, newReviewData);
-          } else {
-            student.reviews[reviewType] = newReviewData;
-          }
+        // ✅ Store PPT approval if provided
+        if ("pptApproved" in reviewData) {
+          newReviewData.pptApproved = reviewData.pptApproved;
         }
 
-        // Update PAT status if provided
-        if (PAT !== undefined) {
-          student.PAT = Boolean(PAT); // Ensure boolean type
-          console.log(
-            `🚫 [BACKEND] Updated PAT status for ${student.name}:`,
-            student.PAT
-          );
-        }
-
-        await student.save({ session });
-        console.log("✅ [BACKEND] Student saved:", student.name);
-      }
-
-      // Update project-level PPT approval if provided
-      if (pptApproved !== undefined) {
-        project.pptApproved = pptApproved;
-        await project.save({ session });
         console.log(
-          "📋 [BACKEND] Updated project-level PPT approval:",
-          pptApproved
+          `📋 [BACKEND] Updating review ${reviewType} for ${student.name}:`,
+          newReviewData
+        );
+
+        if (typeof student.reviews.set === "function") {
+          student.reviews.set(reviewType, newReviewData);
+        } else {
+          student.reviews[reviewType] = newReviewData;
+        }
+      }
+
+      // Update PAT status if provided
+      if (PAT !== undefined) {
+        student.PAT = Boolean(PAT); // Ensure boolean type
+        console.log(
+          `🚫 [BACKEND] Updated PAT status for ${student.name}:`,
+          student.PAT
         );
       }
 
-      await session.commitTransaction();
-      console.log("✅ [BACKEND] All updates completed successfully");
+      // ✅ NEW: Update internshipType if provided
+      if (internshipType !== undefined) {
+        // Validate internshipType
+        const validInternshipTypes = ['none', 'Cdc approved', 'Technology learnt', 'SRIP', 'Centre'];
+        if (!validInternshipTypes.includes(internshipType)) {
+          throw new Error(
+            `Invalid internship type "${internshipType}" for student ${student.regNo}. Must be one of: ${validInternshipTypes.join(', ')}`
+          );
+        }
 
-      res.status(200).json({
-        success: true,
-        message: `Successfully updated project "${project.name}" and ${
-          (studentUpdates || []).length
-        } students`,
-        projectId: project._id,
-        updates: (studentUpdates || []).length,
-      });
-    } catch (error) {
-      await session.abortTransaction();
-      console.error("❌ [BACKEND] Error updating project:", error);
+        // Validate based on department
+        if (student.department !== 'internship' && internshipType !== 'none') {
+          throw new Error(
+            `internshipType can only have values other than "none" when department is "internship". Student ${student.regNo} has department "${student.department}"`
+          );
+        }
 
-      res.status(500).json({
-        success: false,
-        message: "Server error during project update",
-        error: error.message,
-      });
-    } finally {
-      session.endSession();
+        student.internshipType = internshipType;
+        console.log(
+          `📝 [BACKEND] Updated internshipType for ${student.name}:`,
+          student.internshipType
+        );
+      }
+
+      await student.save({ session });
+      console.log("✅ [BACKEND] Student saved:", student.name);
     }
-  };
+
+    // Update project-level PPT approval if provided
+    if (pptApproved !== undefined) {
+      project.pptApproved = pptApproved;
+      await project.save({ session });
+      console.log(
+        "📋 [BACKEND] Updated project-level PPT approval:",
+        pptApproved
+      );
+    }
+
+    await session.commitTransaction();
+    console.log("✅ [BACKEND] All updates completed successfully");
+
+    res.status(200).json({
+      success: true,
+      message: `Successfully updated project "${project.name}" and ${
+        (studentUpdates || []).length
+      } students`,
+      projectId: project._id,
+      updates: (studentUpdates || []).length,
+    });
+  } catch (error) {
+    await session.abortTransaction();
+    console.error("❌ [BACKEND] Error updating project:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Server error during project update",
+      error: error.message,
+    });
+  } finally {
+    session.endSession();
+  }
+};
 
   // Export other existing functions...
 

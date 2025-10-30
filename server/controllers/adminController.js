@@ -1,22 +1,12 @@
-
 import mongoose from "mongoose";
-
 import Faculty from "../models/facultySchema.js";
-
 import bcrypt from "bcryptjs";
-
 import Student from "../models/studentSchema.js";
-
 import Request from "../models/requestSchema.js";
-
 import Project from "../models/projectSchema.js";
-
 import Panel from "../models/panelSchema.js";
-
 import MarkingSchema from "../models/markingSchema.js";
-
 import BroadcastMessage from "../models/broadcastMessageSchema.js";
-
 
 
 // for updating the structure of the marks

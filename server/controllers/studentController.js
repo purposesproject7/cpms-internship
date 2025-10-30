@@ -251,7 +251,8 @@ export const updateStudentDetails = async (req, res) => {
       "deadline",
       "PAT",
       "requiresContribution",
-      "contributionType", // ✅ NEW: Added contributionType
+      "contributionType",
+      "internshipType", // ✅ NEW: Added internshipType
     ];
 
     const updates = {};
@@ -272,7 +273,7 @@ export const updateStudentDetails = async (req, res) => {
       });
     }
 
-    // ✅ NEW: Validate contributionType if provided
+    // ✅ Validate contributionType if provided
     if (updateFields.contributionType !== undefined) {
       const validContributionTypes = [
         'none',
@@ -292,22 +293,61 @@ export const updateStudentDetails = async (req, res) => {
       console.log(`📝 Updating contributionType to: ${updateFields.contributionType}`);
     }
 
-    // ✅ NEW: Logic validation - if requiresContribution is false, contributionType should be 'none'
+    // ✅ NEW: Validate internshipType if provided
+    if (updateFields.internshipType !== undefined) {
+      const validInternshipTypes = [
+        'none',
+        'Cdc approved',
+        'Technology learnt',
+        'SRIP',
+        'Centre'
+      ];
+
+      if (!validInternshipTypes.includes(updateFields.internshipType)) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid internship type. Must be one of: ${validInternshipTypes.join(', ')}`,
+          allowedValues: validInternshipTypes,
+        });
+      }
+
+      console.log(`📝 Updating internshipType to: ${updateFields.internshipType}`);
+    }
+
+    // ✅ NEW: Get student to check department for internshipType validation
+    const student = await Student.findOne({ regNo });
+    if (!student) {
+      return res.status(404).json({
+        success: false,
+        message: "Student not found.",
+      });
+    }
+
+    // ✅ NEW: Validate internshipType based on department
+    const currentDepartment = updateFields.department || student.department;
+    if (updateFields.internshipType !== undefined && 
+        currentDepartment !== 'internship' && 
+        updateFields.internshipType !== 'none') {
+      return res.status(400).json({
+        success: false,
+        message: `internshipType can only have values other than "none" when department is "internship". Current department: ${currentDepartment}`,
+      });
+    }
+
+    // ✅ Logic validation - if requiresContribution is false, contributionType should be 'none'
     if (updateFields.requiresContribution === false && updateFields.contributionType && updateFields.contributionType !== 'none') {
       console.warn(`⚠️  Warning: Setting requiresContribution to false but contributionType is not 'none'. Forcing contributionType to 'none'.`);
       updates.contributionType = 'none';
     }
 
+    // ✅ NEW: Logic validation - if department changes to non-internship, internshipType should be 'none'
+    if (updateFields.department && updateFields.department !== 'internship' && student.internshipType && student.internshipType !== 'none') {
+      console.warn(`⚠️  Warning: Changing department from 'internship' to '${updateFields.department}' but internshipType is not 'none'. Forcing internshipType to 'none'.`);
+      updates.internshipType = 'none';
+    }
+
     // Validate school and department change
     if (updateFields.school || updateFields.department) {
-      const student = await Student.findOne({ regNo });
-      if (!student) {
-        return res.status(404).json({
-          success: false,
-          message: "Student not found.",
-        });
-      }
-
       const newSchool = updateFields.school || student.school;
       const newDepartment = updateFields.department || student.department;
 
@@ -325,14 +365,17 @@ export const updateStudentDetails = async (req, res) => {
       }
 
       console.log(
-        `✅ Marking schema found for ${newSchool}/${newDepartment} (requiresContribution: ${markingSchema.requiresContribution}, contributionType: ${markingSchema.contributionType})`
+        `✅ Marking schema found for ${newSchool}/${newDepartment} (requiresContribution: ${markingSchema.requiresContribution}, contributionType: ${markingSchema.contributionType}, internshipType: ${markingSchema.internshipType})`
       );
 
-      // ✅ NEW: Optionally inherit contribution settings from new schema if not explicitly provided
-      if (updateFields.requiresContribution === undefined && updateFields.contributionType === undefined) {
-        console.log(`📝 Inheriting contribution settings from new schema`);
+      // ✅ NEW: Optionally inherit contribution and internship settings from new schema if not explicitly provided
+      if (updateFields.requiresContribution === undefined && 
+          updateFields.contributionType === undefined && 
+          updateFields.internshipType === undefined) {
+        console.log(`📝 Inheriting contribution and internship settings from new schema`);
         updates.requiresContribution = markingSchema.requiresContribution || false;
         updates.contributionType = markingSchema.contributionType || 'none';
+        updates.internshipType = markingSchema.internshipType || 'none';
       }
     }
 
@@ -506,7 +549,7 @@ export const updateStudentDetails = async (req, res) => {
     }
 
     console.log("✅ Student updated successfully:", updatedStudent._id);
-    console.log(`📝 Updated contribution settings: requiresContribution=${updatedStudent.requiresContribution}, contributionType=${updatedStudent.contributionType}`);
+    console.log(`📝 Updated contribution settings: requiresContribution=${updatedStudent.requiresContribution}, contributionType=${updatedStudent.contributionType}, internshipType=${updatedStudent.internshipType}`);
 
     return res.status(200).json({
       success: true,
@@ -546,6 +589,7 @@ export const updateStudentDetails = async (req, res) => {
     });
   }
 };
+
 
 
 

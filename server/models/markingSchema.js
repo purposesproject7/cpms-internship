@@ -19,7 +19,7 @@ const deadlineSchema = new mongoose.Schema(
 const reviewSchema = new mongoose.Schema(
   {
     reviewName: { type: String, required: true },
-    displayName: { type: String }, // Optional display name
+    displayName: { type: String },
     facultyType: { type: String, enum: ["guide", "panel"], required: true },
     components: [componentSchema],
     deadline: { type: deadlineSchema, required: true },
@@ -40,6 +40,20 @@ const markingSchema = new mongoose.Schema({
     type: String, 
     enum: ["none", "Patent Filed", "Journal Publication", "Book Chapter Contribution"], 
     default: "none" 
+  }, 
+  internshipType: { 
+    type: String, 
+    enum: ["none", "Cdc approved", "Technology learnt", "SRIP", "Centre"], 
+    default: "none",
+    validate: {
+      validator: function(value) {
+        if (this.department !== "Internship" && value !== "none") {
+          return false;
+        }
+        return true;
+      },
+      message: 'internshipType can only have values other than "none" when department is "internship"'
+    }
   }, 
 });
 
