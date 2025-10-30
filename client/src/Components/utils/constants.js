@@ -8,7 +8,8 @@ export const departmentOptions = [
   'BBA', 
   'MBA', 
   'BDes',
-  'MDes'
+  'MDes',
+  'Internship'
 ];
 
 export const specializationOptionsDisplay = [
