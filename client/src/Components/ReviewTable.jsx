@@ -471,13 +471,13 @@ const ReviewTable = ({
               </td>
               <td className="px-4 py-3 border align-middle">
                 <div className="space-y-2">
-                  <div className="text-sm">
+                  {/* <div className="text-sm">
                     <span
                       className={student.pptApproved?.approved ? 'text-green-600' : 'text-red-600'}
                     >
                       <b>{student.pptApproved?.approved ? 'PPT Approved' : 'PPT Not Approved'}</b>
                     </span>
-                  </div>
+                  </div> */}
                 </div>
               </td>
               {/* ✅ UPDATED: Contribution Type Cell with Edit Functionality */}

@@ -15,7 +15,7 @@ const systemConfigSchema = new mongoose.Schema({
   review2: { type: deadlineSchema, required: true },
   review3: { type: deadlineSchema, required: true },
   review4: { type: deadlineSchema, required: true }, // Added
-  pptApproved: { type: deadlineSchema, required: true },
+  // pptApproved: { type: deadlineSchema, required: true },
 });
 
 const SystemConfig = mongoose.model("SystemConfig", systemConfigSchema);
