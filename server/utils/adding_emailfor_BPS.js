@@ -2,8 +2,8 @@ import fs from "fs";
 import path from "path";
 import XLSX from "xlsx";
 
-const INPUT_FILE = "bps_internship_proj2.xlsx";
-const OUTPUT_FILE = "bps_internship_proj2_with_emails.xlsx";
+const INPUT_FILE = "MIA_proj.xlsx";
+const OUTPUT_FILE = "MIA_with_emails.xlsx";
 
 // Source and target columns
 const REGNO_COL = "Student RegNo 1";     // exact header in your sheet
