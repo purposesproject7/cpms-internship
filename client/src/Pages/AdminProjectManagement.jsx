@@ -68,7 +68,7 @@ const AdminProjectManagement = () => {
   // Hardcoded department options for edit modal
 const DEPARTMENT_OPTIONS = [
   'BTech', 'MIS(Mtech Integrated)','MIA(Mtech Integrated)','MCA','MCA 2nd Year','MCS','MCB','MAI(Machine Learning)'
-,'MAI(Data Science)','MCS'];
+,'MAI(Data Science)','MCS','Multidisciplinary1'];
 
   
   // Core state

@@ -1121,7 +1121,7 @@ export async function getAllRequests(req, res) {
     const { facultyType } = req.params;
     const { school, department } = req.query;
 
-    if (![" panel", "guide"].includes(facultyType)) {
+    if (!["panel", "guide"].includes(facultyType)) {
       return res.status(400).json({
         success: false,
         message: "facultyType should either be 'guide' or 'panel'",

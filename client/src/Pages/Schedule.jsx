@@ -32,7 +32,7 @@ function Schedule() {
   const schoolOptions = ['SCOPE', 'SENSE', 'SELECT', 'SMEC', 'SCE'];
   const departmentOptions = [
     'BTech', 'M.Tech Integrated (MIS)', 'M.Tech Integrated (MIA)', 'MCA 1st Year', 
-    'MCA', 'M.Tech 2yr (MCS,MCB,MAI)','Internship','Multidisciplinary'
+    'MCA', 'M.Tech 2yr (MCS,MCB,MAI)','Internship','Multidisciplinary','Multidisciplinary1'
   ];
 
   const [selectedSchool, setSelectedSchool] = useState('');
